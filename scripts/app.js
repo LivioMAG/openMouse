@@ -29,6 +29,7 @@ let documentsRequestId = 0;
 let documentsLoadedWorkspaceId = null;
 let documentsLoadingWorkspaceId = null;
 let documentsLoadPromise = null;
+let documentsAutoRefreshInFlight = false;
 let initialSessionHydrated = false;
 
 const readStoredViewState = () => {
@@ -113,13 +114,15 @@ const updateDocumentsState = (patch) => {
   });
 };
 
-const loadDocuments = async (workspaceId) => {
+const loadDocuments = async (workspaceId, options = {}) => {
+  const { force = false } = options;
+
   if (!state.user || !workspaceId) {
     updateDocumentsState({ loading: false });
     return;
   }
 
-  if (documentsLoadPromise && documentsLoadingWorkspaceId === workspaceId) {
+  if (!force && documentsLoadPromise && documentsLoadingWorkspaceId === workspaceId) {
     return documentsLoadPromise;
   }
 
@@ -168,6 +171,11 @@ const loadDocuments = async (workspaceId) => {
   })();
 
   return documentsLoadPromise;
+};
+
+const reloadDocuments = async () => {
+  if (state.route.name !== 'detail') return;
+  await loadDocuments(state.route.id, { force: true });
 };
 
 const resetDocumentsForWorkspace = () => {
@@ -220,7 +228,7 @@ const handleDocumentsTabEnter = async (options = {}) => {
   if (state.route.name !== 'detail') return;
   if (state.documents.loading) return;
   if (!force && documentsLoadedWorkspaceId === state.route.id) return;
-  await loadDocuments(state.route.id);
+  await loadDocuments(state.route.id, { force });
 };
 
 const handleCreateFolder = async () => {
@@ -237,7 +245,7 @@ const handleCreateFolder = async () => {
 
     const { error } = await supabase.from('folders').insert(payload);
     if (error) throw error;
-    await loadDocuments(state.route.id);
+    await reloadDocuments();
     setMessage('Ordner wurde erstellt.');
   } catch (error) {
     setError(error.message || 'Ordner konnte nicht erstellt werden.');
@@ -275,7 +283,7 @@ const handleUploadFile = async (event) => {
     const { error } = await supabase.from('files').insert(payload);
     if (error) throw error;
 
-    await loadDocuments(state.route.id);
+    await reloadDocuments();
     setMessage('Datei wurde hochgeladen.');
   } catch (error) {
     setError(error.message || 'Datei konnte nicht hochgeladen werden.');
@@ -335,7 +343,7 @@ const handleRenameFolder = async (folderId) => {
   try {
     const { error } = await supabase.from('folders').update({ name }).eq('id', folderId).eq('user_id', state.user.id);
     if (error) throw error;
-    await loadDocuments(state.route.id);
+    await reloadDocuments();
     setMessage('Ordner wurde umbenannt.');
   } catch (error) {
     setError(error.message || 'Ordner konnte nicht umbenannt werden.');
@@ -352,7 +360,7 @@ const handleRenameFile = async (fileId) => {
   try {
     const { error } = await supabase.from('files').update({ name }).eq('id', fileId).eq('user_id', state.user.id);
     if (error) throw error;
-    await loadDocuments(state.route.id);
+    await reloadDocuments();
     setMessage('Datei wurde umbenannt.');
   } catch (error) {
     setError(error.message || 'Datei konnte nicht umbenannt werden.');
@@ -371,7 +379,7 @@ const handleDeleteFile = async (fileId) => {
 
     const { error } = await supabase.from('files').delete().eq('id', fileId).eq('user_id', state.user.id);
     if (error) throw error;
-    await loadDocuments(state.route.id);
+    await reloadDocuments();
     setMessage('Datei wurde gelöscht.');
   } catch (error) {
     setError(error.message || 'Datei konnte nicht gelöscht werden.');
@@ -423,7 +431,7 @@ const handleDeleteFolder = async (folderId) => {
       updateDocumentsState({ currentFolderId: folder.parent_id ?? null });
     }
 
-    await loadDocuments(state.route.id);
+    await reloadDocuments();
     setMessage('Ordner wurde gelöscht.');
   } catch (error) {
     setError(error.message || 'Ordner konnte nicht gelöscht werden.');
@@ -861,6 +869,26 @@ const bindEvents = () => {
     if (trigger.matches('[data-delete-file]')) {
       handleDeleteFile(trigger.dataset.deleteFile);
     }
+  });
+
+  const handleDocumentsAutoRefresh = async () => {
+    if (documentsAutoRefreshInFlight) return;
+    if (document.visibilityState !== 'visible') return;
+    if (!state.session) return;
+    if (state.route.name !== 'detail' || state.activeDetailTab !== 'dokumentenablage') return;
+
+    documentsAutoRefreshInFlight = true;
+    try {
+      await handleDocumentsTabEnter({ force: true });
+    } finally {
+      documentsAutoRefreshInFlight = false;
+    }
+  };
+
+  window.addEventListener('focus', handleDocumentsAutoRefresh);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+    handleDocumentsAutoRefresh();
   });
 };
 
