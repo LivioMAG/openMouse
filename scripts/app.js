@@ -26,6 +26,7 @@ const state = {
 
 const app = document.getElementById('app');
 let documentsRequestId = 0;
+let lastDocumentsFocusRefreshAt = 0;
 
 const readStoredViewState = () => {
   try {
@@ -201,8 +202,11 @@ const handleDocumentsTabEnter = async (options = {}) => {
 };
 
 const refreshDocumentsOnTabFocus = async () => {
+  const now = Date.now();
+  if (now - lastDocumentsFocusRefreshAt < 750) return;
   if (document.visibilityState !== 'visible') return;
   if (state.route.name !== 'detail' || state.activeDetailTab !== 'dokumentenablage') return;
+  lastDocumentsFocusRefreshAt = now;
   await handleDocumentsTabEnter({ force: true });
 };
 
@@ -1136,7 +1140,7 @@ const init = async () => {
 
   supabase.auth.onAuthStateChange(async (event, session) => {
     if (session) {
-      const shouldResetRoute = !state.session || event === 'SIGNED_IN';
+      const shouldResetRoute = !state.session && event === 'SIGNED_IN';
       setState({
         session,
         user: session.user,
