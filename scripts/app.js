@@ -11,6 +11,8 @@ const state = {
   error: null,
   route: { name: 'list' },
   pendingOtpEmail: '',
+  otpStep: 'request',
+  activeDetailTab: 'neuigkeiten',
 };
 
 const app = document.getElementById('app');
@@ -51,13 +53,32 @@ const fetchProfile = async () => {
     .from('profiles')
     .select('id, has_subscription')
     .eq('id', state.user.id)
-    .single();
+    .maybeSingle();
 
   if (error) {
     setError('Profil konnte nicht geladen werden. Bitte prüfe die Tabelle „profiles“.');
     return;
   }
 
+  if (!data) {
+    await ensureProfileExists(state.user.id);
+    const { data: createdProfile, error: createdProfileError } = await supabase
+      .from('profiles')
+      .select('id, has_subscription')
+      .eq('id', state.user.id)
+      .maybeSingle();
+
+    if (createdProfileError) {
+      setError('Profil konnte nicht erstellt werden.');
+      return;
+    }
+
+    console.log('PROFILE:', createdProfile);
+    setState({ profile: createdProfile });
+    return;
+  }
+
+  console.log('PROFILE:', data);
   setState({ profile: data });
 };
 
@@ -186,8 +207,8 @@ const handleOtpRequest = async (event) => {
     });
 
     if (error) throw error;
-    setState({ pendingOtpEmail: email });
-    setMessage('Code per E-Mail anfordern erfolgreich. Bitte prüfe dein Postfach.');
+    setState({ pendingOtpEmail: email, otpStep: 'verify' });
+    setMessage('Code wurde gesendet. Bitte gib ihn im nächsten Schritt ein.');
   } catch (error) {
     setError(error.message || 'OTP-Code konnte nicht angefordert werden.');
   } finally {
@@ -223,6 +244,7 @@ const handleOtpVerify = async (event) => {
 
     if (error) throw error;
     setMessage('Code bestätigt. Du bist jetzt angemeldet.');
+    setState({ otpStep: 'request' });
   } catch (error) {
     setError(error.message || 'Code konnte nicht verifiziert werden.');
   } finally {
@@ -242,7 +264,11 @@ const handleLogout = async () => {
 const handleCreateArbeitsumgebung = async (event) => {
   event.preventDefault();
 
-  if (!state.profile?.has_subscription) {
+  if (!state.profile && state.user?.id) {
+    await fetchProfile();
+  }
+
+  if (state.profile?.has_subscription !== true) {
     setError(
       'Du hast aktuell kein aktives Abo. Bitte aktiviere dein Abo, bevor du eine Arbeitsumgebung erstellst.'
     );
@@ -294,11 +320,21 @@ const handleCreateArbeitsumgebung = async (event) => {
 };
 
 const setAuthTab = (tab) => {
-  setState({ activeAuthTab: tab, error: null, message: null });
+  setState({
+    activeAuthTab: tab,
+    error: null,
+    message: null,
+    otpStep: tab === 'otp' ? state.otpStep : 'request',
+  });
 };
 
 const navigate = (route) => {
-  setState({ route, error: null, message: null });
+  setState({
+    route,
+    error: null,
+    message: null,
+    activeDetailTab: route.name === 'detail' ? state.activeDetailTab : 'neuigkeiten',
+  });
 };
 
 const bindEvents = () => {
@@ -338,6 +374,13 @@ const bindEvents = () => {
       navigate({ name: 'detail', id: button.dataset.openDetail });
     });
   });
+
+  const detailTabs = app.querySelectorAll('[data-detail-tab]');
+  detailTabs.forEach((button) => {
+    button.addEventListener('click', () => {
+      setState({ activeDetailTab: button.dataset.detailTab });
+    });
+  });
 };
 
 const renderAlerts = () => {
@@ -355,6 +398,8 @@ const renderAuth = () => {
   const isLogin = state.activeAuthTab === 'anmelden';
   const isRegister = state.activeAuthTab === 'registrieren';
   const isOtp = state.activeAuthTab === 'otp';
+
+  const isOtpStepRequest = state.otpStep === 'request';
 
   return `
     <main class="card auth-card">
@@ -394,26 +439,25 @@ const renderAuth = () => {
       </section>
 
       <section class="tab-panel ${isOtp ? 'active' : ''}">
-        <div class="otp-grid">
-          <form id="form-otp-request" class="form">
-            <h2>Code per E-Mail anfordern</h2>
-            <label>E-Mail
-              <input type="email" name="email" value="${escapeHtml(state.pendingOtpEmail)}" required autocomplete="email" />
-            </label>
-            <button type="submit" ${state.loading ? 'disabled' : ''}>Code per E-Mail anfordern</button>
-          </form>
-
-          <form id="form-otp-verify" class="form">
-            <h2>Code eingeben</h2>
-            <label>E-Mail
-              <input type="email" name="email" value="${escapeHtml(state.pendingOtpEmail)}" required autocomplete="email" />
-            </label>
-            <label>Code
-              <input type="text" name="token" required inputmode="numeric" />
-            </label>
-            <button type="submit" ${state.loading ? 'disabled' : ''}>Code eingeben</button>
-          </form>
-        </div>
+        ${
+          isOtpStepRequest
+            ? `<form id="form-otp-request" class="form form-wide">
+                <h2>Code senden</h2>
+                <label>E-Mail
+                  <input type="email" name="email" value="${escapeHtml(state.pendingOtpEmail)}" required autocomplete="email" />
+                </label>
+                <button type="submit" ${state.loading ? 'disabled' : ''}>Code senden</button>
+              </form>`
+            : `<form id="form-otp-verify" class="form form-wide">
+                <h2>Code eingeben</h2>
+                <p class="subtitle">Code wurde gesendet an: <strong>${escapeHtml(state.pendingOtpEmail)}</strong></p>
+                <input type="hidden" name="email" value="${escapeHtml(state.pendingOtpEmail)}" />
+                <label>Code
+                  <input type="text" name="token" required inputmode="numeric" />
+                </label>
+                <button type="submit" ${state.loading ? 'disabled' : ''}>Einloggen</button>
+              </form>`
+        }
       </section>
     </main>
   `;
@@ -442,8 +486,8 @@ const renderList = () => {
           <p class="subtitle">Verwaltung deiner Projekte.</p>
         </div>
         <div class="toolbar-actions">
-          <button id="create-view-button">Arbeitsumgebung erstellen</button>
-          <button id="logout-button" class="button-secondary">Abmelden</button>
+          <button id="create-view-button"><i class="fa-solid fa-plus"></i> Arbeitsumgebung erstellen</button>
+          <button id="logout-button" class="button-secondary"><i class="fa-solid fa-right-from-bracket"></i> Abmelden</button>
         </div>
       </div>
       ${renderAlerts()}
@@ -456,7 +500,7 @@ const renderList = () => {
           ? `<div class="workspace-list">${rows}</div>`
           : `<div class="empty-state">
               <p>Du hast noch keine Arbeitsumgebungen.</p>
-              <button id="create-view-button">Arbeitsumgebung erstellen</button>
+              <button id="create-view-button"><i class="fa-solid fa-plus"></i> Arbeitsumgebung erstellen</button>
             </div>`
       }
     </section>
@@ -465,9 +509,9 @@ const renderList = () => {
 
 const renderCreate = () => `
   <section class="card">
-    <div class="toolbar">
-      <h2>Arbeitsumgebung erstellen</h2>
-      <button class="button-secondary" data-back-to-list>Zurück</button>
+      <div class="toolbar">
+        <h2>Arbeitsumgebung erstellen</h2>
+      <button class="button-secondary" data-back-to-list><i class="fa-solid fa-arrow-left"></i> Zurück</button>
     </div>
     ${renderAlerts()}
     <form id="form-create-arbeitsumgebung" class="form form-wide">
@@ -477,7 +521,7 @@ const renderCreate = () => `
       <label>Kommissionsnummer
         <input type="text" name="kommissionsnummer" required />
       </label>
-      <button type="submit" ${state.loading ? 'disabled' : ''}>Arbeitsumgebung erstellen</button>
+      <button type="submit" ${state.loading ? 'disabled' : ''}><i class="fa-solid fa-check"></i> Arbeitsumgebung erstellen</button>
     </form>
   </section>
 `;
@@ -490,18 +534,50 @@ const renderDetail = () => {
       <section class="card">
         <div class="toolbar">
           <h2>Detailansicht</h2>
-          <button class="button-secondary" data-back-to-list>Zurück</button>
+          <button class="button-secondary" data-back-to-list><i class="fa-solid fa-arrow-left"></i> Zurück</button>
         </div>
         <p>Arbeitsumgebung wurde nicht gefunden.</p>
       </section>
     `;
   }
 
+  const detailTabs = [
+    { id: 'neuigkeiten', label: 'Neuigkeiten', icon: 'fa-newspaper' },
+    { id: 'dokumentenablage', label: 'Dokumentenablage', icon: 'fa-folder-open' },
+    { id: 'aktuelle-arbeit', label: 'Aktuelle Arbeit', icon: 'fa-hammer' },
+    { id: 'dispo', label: 'Dispo', icon: 'fa-calendar-days' },
+    { id: 'baujournal', label: 'Baujournal', icon: 'fa-book-open' },
+    { id: 'team', label: 'Team', icon: 'fa-users' },
+  ];
+
+  const tabButtons = detailTabs
+    .map(
+      (tab) => `
+        <button class="tab ${state.activeDetailTab === tab.id ? 'active' : ''}" data-detail-tab="${tab.id}">
+          <i class="fa-solid ${tab.icon}"></i> ${tab.label}
+        </button>
+      `
+    )
+    .join('');
+
+  const tabPanels = detailTabs
+    .map(
+      (tab) => `
+        <section class="tab-panel ${state.activeDetailTab === tab.id ? 'active' : ''}">
+          <div class="detail-section">
+            <h3><i class="fa-solid ${tab.icon}"></i> ${tab.label}</h3>
+            <p>Dieser Bereich für „${tab.label}“ ist bereit.</p>
+          </div>
+        </section>
+      `
+    )
+    .join('');
+
   return `
     <section class="card">
       <div class="toolbar">
         <h2>Arbeitsumgebung</h2>
-        <button class="button-secondary" data-back-to-list>Zurück</button>
+        <button class="button-secondary" data-back-to-list><i class="fa-solid fa-arrow-left"></i> Zurück</button>
       </div>
       <div class="detail-grid">
         <div>
@@ -517,6 +593,10 @@ const renderDetail = () => {
           <strong>${escapeHtml(formatDate(workspace.created_at))}</strong>
         </div>
       </div>
+      <div class="tabs detail-tabs" role="tablist" aria-label="Arbeitsumgebung-Bereiche">
+        ${tabButtons}
+      </div>
+      ${tabPanels}
     </section>
   `;
 };
@@ -570,6 +650,8 @@ const init = async () => {
         arbeitsumgebungen: [],
         route: { name: 'list' },
         pendingOtpEmail: '',
+        otpStep: 'request',
+        activeDetailTab: 'neuigkeiten',
       });
     }
   });
