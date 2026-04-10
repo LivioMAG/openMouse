@@ -110,7 +110,10 @@ const updateDocumentsState = (patch) => {
 };
 
 const loadDocuments = async (workspaceId) => {
-  if (!state.user || !workspaceId) return;
+  if (!state.user || !workspaceId) {
+    updateDocumentsState({ loading: false });
+    return;
+  }
 
   const requestId = ++documentsRequestId;
   updateDocumentsState({ loading: true });
@@ -736,7 +739,7 @@ const bindEvents = () => {
     button.addEventListener('click', async () => {
       setState({ activeDetailTab: button.dataset.detailTab });
       if (button.dataset.detailTab === 'dokumentenablage') {
-        await handleDocumentsTabEnter();
+        await handleDocumentsTabEnter({ force: true });
       }
     });
   });
@@ -1131,9 +1134,14 @@ const init = async () => {
     render();
   }
 
-  supabase.auth.onAuthStateChange(async (_event, session) => {
+  supabase.auth.onAuthStateChange(async (event, session) => {
     if (session) {
-      setState({ session, user: session.user, route: { name: 'list' } });
+      const shouldResetRoute = !state.session || event === 'SIGNED_IN';
+      setState({
+        session,
+        user: session.user,
+        route: shouldResetRoute ? { name: 'list' } : state.route,
+      });
       await ensureProfileExists(session.user.id);
       await loadAppData();
     } else {
