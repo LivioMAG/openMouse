@@ -26,7 +26,7 @@ const state = {
 
 const app = document.getElementById('app');
 let documentsRequestId = 0;
-let lastDocumentsFocusRefreshAt = 0;
+let documentsLoadedWorkspaceId = null;
 
 const readStoredViewState = () => {
   try {
@@ -145,6 +145,7 @@ const loadDocuments = async (workspaceId) => {
       files: filesResponse.data ?? [],
       loading: false,
     });
+    documentsLoadedWorkspaceId = workspaceId;
   } catch (error) {
     if (requestId !== documentsRequestId) return;
     updateDocumentsState({ loading: false });
@@ -153,6 +154,7 @@ const loadDocuments = async (workspaceId) => {
 };
 
 const resetDocumentsForWorkspace = () => {
+  documentsLoadedWorkspaceId = null;
   setState({
     documents: {
       currentFolderId: null,
@@ -197,17 +199,9 @@ const getFilteredDocumentItems = () => {
 const handleDocumentsTabEnter = async (options = {}) => {
   const { force = false } = options;
   if (state.route.name !== 'detail') return;
-  if (state.documents.loading && !force) return;
+  if (state.documents.loading) return;
+  if (!force && documentsLoadedWorkspaceId === state.route.id) return;
   await loadDocuments(state.route.id);
-};
-
-const refreshDocumentsOnTabFocus = async () => {
-  const now = Date.now();
-  if (now - lastDocumentsFocusRefreshAt < 750) return;
-  if (document.visibilityState !== 'visible') return;
-  if (state.route.name !== 'detail' || state.activeDetailTab !== 'dokumentenablage') return;
-  lastDocumentsFocusRefreshAt = now;
-  await handleDocumentsTabEnter({ force: true });
 };
 
 const handleCreateFolder = async () => {
@@ -741,8 +735,12 @@ const bindEvents = () => {
   const detailTabs = app.querySelectorAll('[data-detail-tab]');
   detailTabs.forEach((button) => {
     button.addEventListener('click', async () => {
-      setState({ activeDetailTab: button.dataset.detailTab });
-      if (button.dataset.detailTab === 'dokumentenablage') {
+      const nextTab = button.dataset.detailTab;
+      const isSameTab = state.activeDetailTab === nextTab;
+      if (!isSameTab) {
+        setState({ activeDetailTab: nextTab });
+      }
+      if (nextTab === 'dokumentenablage') {
         await handleDocumentsTabEnter({ force: true });
       }
     });
@@ -1149,6 +1147,7 @@ const init = async () => {
       await ensureProfileExists(session.user.id);
       await loadAppData();
     } else {
+      documentsLoadedWorkspaceId = null;
       setState({
         session: null,
         user: null,
@@ -1174,8 +1173,6 @@ const init = async () => {
     }
   });
 
-  document.addEventListener('visibilitychange', refreshDocumentsOnTabFocus);
-  window.addEventListener('focus', refreshDocumentsOnTabFocus);
 };
 
 init();
