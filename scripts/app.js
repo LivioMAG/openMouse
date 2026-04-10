@@ -27,6 +27,8 @@ const state = {
 const app = document.getElementById('app');
 let documentsRequestId = 0;
 let documentsLoadedWorkspaceId = null;
+let documentsLoadingWorkspaceId = null;
+let documentsLoadPromise = null;
 
 const readStoredViewState = () => {
   try {
@@ -116,45 +118,61 @@ const loadDocuments = async (workspaceId) => {
     return;
   }
 
+  if (documentsLoadPromise && documentsLoadingWorkspaceId === workspaceId) {
+    return documentsLoadPromise;
+  }
+
   const requestId = ++documentsRequestId;
+  documentsLoadingWorkspaceId = workspaceId;
   updateDocumentsState({ loading: true });
 
-  try {
-    const [foldersResponse, filesResponse] = await Promise.all([
-      supabase
-        .from('folders')
-        .select('id, name, parent_id, created_at')
-        .eq('user_id', state.user.id)
-        .eq('arbeitsumgebung_id', workspaceId)
-        .order('name', { ascending: true }),
-      supabase
-        .from('files')
-        .select('id, name, file_path, folder_id, size_bytes, created_at')
-        .eq('user_id', state.user.id)
-        .eq('arbeitsumgebung_id', workspaceId)
-        .order('name', { ascending: true }),
-    ]);
+  documentsLoadPromise = (async () => {
+    try {
+      const [foldersResponse, filesResponse] = await Promise.all([
+        supabase
+          .from('folders')
+          .select('id, name, parent_id, created_at')
+          .eq('user_id', state.user.id)
+          .eq('arbeitsumgebung_id', workspaceId)
+          .order('name', { ascending: true }),
+        supabase
+          .from('files')
+          .select('id, name, file_path, folder_id, size_bytes, created_at')
+          .eq('user_id', state.user.id)
+          .eq('arbeitsumgebung_id', workspaceId)
+          .order('name', { ascending: true }),
+      ]);
 
-    if (foldersResponse.error) throw foldersResponse.error;
-    if (filesResponse.error) throw filesResponse.error;
+      if (foldersResponse.error) throw foldersResponse.error;
+      if (filesResponse.error) throw filesResponse.error;
 
-    if (requestId !== documentsRequestId) return;
+      if (requestId !== documentsRequestId) return;
 
-    updateDocumentsState({
-      folders: foldersResponse.data ?? [],
-      files: filesResponse.data ?? [],
-      loading: false,
-    });
-    documentsLoadedWorkspaceId = workspaceId;
-  } catch (error) {
-    if (requestId !== documentsRequestId) return;
-    updateDocumentsState({ loading: false });
-    setError(error.message || 'Dokumentenablage konnte nicht geladen werden.');
-  }
+      updateDocumentsState({
+        folders: foldersResponse.data ?? [],
+        files: filesResponse.data ?? [],
+        loading: false,
+      });
+      documentsLoadedWorkspaceId = workspaceId;
+    } catch (error) {
+      if (requestId !== documentsRequestId) return;
+      updateDocumentsState({ loading: false });
+      setError(error.message || 'Dokumentenablage konnte nicht geladen werden.');
+    } finally {
+      if (documentsLoadingWorkspaceId === workspaceId) {
+        documentsLoadingWorkspaceId = null;
+        documentsLoadPromise = null;
+      }
+    }
+  })();
+
+  return documentsLoadPromise;
 };
 
 const resetDocumentsForWorkspace = () => {
   documentsLoadedWorkspaceId = null;
+  documentsLoadingWorkspaceId = null;
+  documentsLoadPromise = null;
   setState({
     documents: {
       currentFolderId: null,
@@ -1170,6 +1188,8 @@ const init = async () => {
       await loadAppData();
     } else {
       documentsLoadedWorkspaceId = null;
+      documentsLoadingWorkspaceId = null;
+      documentsLoadPromise = null;
       setState({
         session: null,
         user: null,
