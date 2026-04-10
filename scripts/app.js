@@ -1168,6 +1168,16 @@ const init = async () => {
       return;
     }
 
+    if (event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+      if (session && state.session) {
+        setState({
+          session,
+          user: session.user,
+        });
+      }
+      return;
+    }
+
     if (session) {
       const shouldResetRoute = !state.session && event === 'SIGNED_IN';
       setState({
