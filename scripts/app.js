@@ -122,7 +122,7 @@ const loadDocuments = async (workspaceId, options = {}) => {
     return;
   }
 
-  if (!force && documentsLoadPromise && documentsLoadingWorkspaceId === workspaceId) {
+  if (documentsLoadPromise && documentsLoadingWorkspaceId === workspaceId) {
     return documentsLoadPromise;
   }
 
@@ -226,7 +226,6 @@ const getFilteredDocumentItems = () => {
 const handleDocumentsTabEnter = async (options = {}) => {
   const { force = false } = options;
   if (state.route.name !== 'detail') return;
-  if (!force && state.documents.loading) return;
   if (!force && documentsLoadedWorkspaceId === state.route.id) return;
   await loadDocuments(state.route.id, { force });
 };
