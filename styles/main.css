@@ -284,6 +284,117 @@ button:disabled {
   margin: 0 0 0.5rem;
 }
 
+.documents-section {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.documents-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.upload-label {
+  border: none;
+  border-radius: 14px;
+  padding: 0.68rem 0.9rem;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 180ms ease, background 180ms ease, box-shadow 180ms ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+}
+
+.upload-label:hover {
+  background: var(--primary-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 16px rgba(30, 64, 175, 0.2);
+}
+
+.upload-label input {
+  display: none;
+}
+
+.documents-controls {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.breadcrumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.breadcrumb-item {
+  background: #eef2ff;
+  color: #1e3a8a;
+  padding: 0.25rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.86rem;
+}
+
+.breadcrumb-sep {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.documents-list {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.doc-item {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.7rem;
+  align-items: center;
+  padding: 0.45rem;
+}
+
+.doc-open-button {
+  background: transparent;
+  color: var(--text);
+  box-shadow: none;
+  transform: none;
+  padding: 0.35rem;
+  display: inline-flex;
+  gap: 0.7rem;
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.doc-open-button:hover {
+  background: #f8fafc;
+  box-shadow: none;
+  transform: none;
+}
+
+.doc-open-button i {
+  font-size: 1.1rem;
+  margin-top: 0.05rem;
+}
+
+.doc-open-button small {
+  color: var(--muted);
+}
+
+.doc-item-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
 @keyframes fade-in {
   from {
     opacity: 0;
