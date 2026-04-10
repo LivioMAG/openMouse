@@ -1,5 +1,7 @@
 import { supabase } from './supabaseClient.js';
 
+const VIEW_STATE_STORAGE_KEY = 'openmouse:view-state';
+
 const state = {
   session: null,
   user: null,
@@ -24,8 +26,36 @@ const state = {
 
 const app = document.getElementById('app');
 
+const readStoredViewState = () => {
+  try {
+    const raw = window.sessionStorage.getItem(VIEW_STATE_STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+};
+
+const writeStoredViewState = () => {
+  if (!state.session) return;
+
+  try {
+    window.sessionStorage.setItem(
+      VIEW_STATE_STORAGE_KEY,
+      JSON.stringify({
+        route: state.route,
+        activeDetailTab: state.activeDetailTab,
+        currentFolderId: state.documents.currentFolderId,
+      })
+    );
+  } catch {
+    // Silent fail for non-critical UI persistence.
+  }
+};
+
 const setState = (patch) => {
   Object.assign(state, patch);
+  writeStoredViewState();
   render();
 };
 
@@ -232,6 +262,27 @@ const handleOpenFile = async (fileId) => {
     window.open(data.signedUrl, '_blank', 'noopener');
   } catch (error) {
     setError(error.message || 'Datei konnte nicht geöffnet werden.');
+  }
+};
+
+const handleDownloadFile = async (fileId) => {
+  const file = state.documents.files.find((item) => item.id === fileId);
+  if (!file) return;
+
+  try {
+    const { data, error } = await supabase
+      .storage
+      .from('documents')
+      .createSignedUrl(file.file_path, 60, { download: file.name });
+    if (error) throw error;
+
+    const link = document.createElement('a');
+    link.href = data.signedUrl;
+    link.download = file.name;
+    link.rel = 'noopener';
+    link.click();
+  } catch (error) {
+    setError(error.message || 'Datei konnte nicht heruntergeladen werden.');
   }
 };
 
@@ -623,11 +674,7 @@ const navigate = (route) => {
     route,
     error: null,
     message: null,
-    activeDetailTab: route.name === 'detail' ? state.activeDetailTab : 'neuigkeiten',
   });
-  if (route.name !== 'detail') {
-    resetDocumentsForWorkspace();
-  }
 };
 
 const bindEvents = () => {
@@ -702,6 +749,10 @@ const bindEvents = () => {
 
   app.querySelectorAll('[data-open-file]').forEach((el) => {
     el.addEventListener('click', () => handleOpenFile(el.dataset.openFile));
+  });
+
+  app.querySelectorAll('[data-download-file]').forEach((el) => {
+    el.addEventListener('click', () => handleDownloadFile(el.dataset.downloadFile));
   });
 
   app.querySelectorAll('[data-rename-folder]').forEach((el) => {
@@ -940,6 +991,7 @@ const renderDetail = () => {
             </button>
             <div class="doc-item-actions">
               <button class="button-secondary" data-rename-file="${file.id}"><i class="fa-solid fa-pen"></i></button>
+              <button class="button-secondary" data-download-file="${file.id}"><i class="fa-solid fa-download"></i></button>
               <button class="button-secondary" data-delete-file="${file.id}"><i class="fa-solid fa-trash"></i></button>
             </div>
           </article>
@@ -1000,20 +1052,6 @@ const renderDetail = () => {
         <h2>Arbeitsumgebung</h2>
         <button class="button-secondary" data-back-to-list><i class="fa-solid fa-arrow-left"></i> Zurück</button>
       </div>
-      <div class="detail-grid">
-        <div>
-          <span>Projektname</span>
-          <strong>${escapeHtml(workspace.projektname)}</strong>
-        </div>
-        <div>
-          <span>Kommissionsnummer</span>
-          <strong>${escapeHtml(workspace.kommissionsnummer)}</strong>
-        </div>
-        <div>
-          <span>Erstellungsdatum</span>
-          <strong>${escapeHtml(formatDate(workspace.created_at))}</strong>
-        </div>
-      </div>
       <div class="tabs detail-tabs" role="tablist" aria-label="Arbeitsumgebung-Bereiche">
         ${tabButtons}
       </div>
@@ -1047,13 +1085,35 @@ const render = () => {
 };
 
 const init = async () => {
+  const storedViewState = readStoredViewState();
   const {
     data: { session },
   } = await supabase.auth.getSession();
 
   if (session) {
-    setState({ session, user: session.user });
+    const restoredRoute =
+      storedViewState?.route?.name === 'detail' || storedViewState?.route?.name === 'create'
+        ? storedViewState.route
+        : { name: 'list' };
+    const restoredTab = typeof storedViewState?.activeDetailTab === 'string'
+      ? storedViewState.activeDetailTab
+      : 'neuigkeiten';
+    const restoredFolder = storedViewState?.currentFolderId ?? null;
+
+    setState({
+      session,
+      user: session.user,
+      route: restoredRoute,
+      activeDetailTab: restoredTab,
+      documents: {
+        ...state.documents,
+        currentFolderId: restoredFolder,
+      },
+    });
     await loadAppData();
+    if (restoredRoute.name === 'detail' && restoredTab === 'dokumentenablage') {
+      await handleDocumentsTabEnter();
+    }
   } else {
     render();
   }
@@ -1081,6 +1141,11 @@ const init = async () => {
           loading: false,
         },
       });
+      try {
+        window.sessionStorage.removeItem(VIEW_STATE_STORAGE_KEY);
+      } catch {
+        // Silent fail for non-critical UI persistence.
+      }
     }
   });
 };
