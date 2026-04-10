@@ -35,6 +35,8 @@ const escapeHtml = (value = '') =>
     .replaceAll("'", '&#039;');
 
 const isEmailValid = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+const hasActiveSubscription = (profile) =>
+  profile?.has_subscription === true || profile?.has_susrcription === true;
 
 const formatDate = (raw) => {
   if (!raw) return '–';
@@ -51,7 +53,7 @@ const fetchProfile = async () => {
 
   const { data, error } = await supabase
     .from('profiles')
-    .select('id, has_subscription')
+    .select('*')
     .eq('id', state.user.id)
     .maybeSingle();
 
@@ -64,7 +66,7 @@ const fetchProfile = async () => {
     await ensureProfileExists(state.user.id);
     const { data: createdProfile, error: createdProfileError } = await supabase
       .from('profiles')
-      .select('id, has_subscription')
+      .select('*')
       .eq('id', state.user.id)
       .maybeSingle();
 
@@ -112,7 +114,7 @@ const loadAppData = async () => {
 const ensureProfileExists = async (userId) => {
   const { error } = await supabase
     .from('profiles')
-    .upsert({ id: userId, has_subscription: false }, { onConflict: 'id' });
+    .upsert({ id: userId }, { onConflict: 'id' });
 
   if (error) {
     setError('Profil konnte nicht vorbereitet werden.');
@@ -268,7 +270,7 @@ const handleCreateArbeitsumgebung = async (event) => {
     await fetchProfile();
   }
 
-  if (state.profile?.has_subscription !== true) {
+  if (!hasActiveSubscription(state.profile)) {
     setError(
       'Du hast aktuell kein aktives Abo. Bitte aktiviere dein Abo, bevor du eine Arbeitsumgebung erstellst.'
     );
@@ -491,8 +493,8 @@ const renderList = () => {
         </div>
       </div>
       ${renderAlerts()}
-      <div class="subscription-note ${state.profile?.has_subscription ? 'ok' : 'warn'}">
-        Abo-Status: ${state.profile?.has_subscription ? 'Aktiv' : 'Nicht aktiv'}
+      <div class="subscription-note ${hasActiveSubscription(state.profile) ? 'ok' : 'warn'}">
+        Abo-Status: ${hasActiveSubscription(state.profile) ? 'Aktiv' : 'Nicht aktiv'}
       </div>
 
       ${
