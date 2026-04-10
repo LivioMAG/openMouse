@@ -266,17 +266,6 @@ const handleLogout = async () => {
 const handleCreateArbeitsumgebung = async (event) => {
   event.preventDefault();
 
-  if (!state.profile && state.user?.id) {
-    await fetchProfile();
-  }
-
-  if (!hasActiveSubscription(state.profile)) {
-    setError(
-      'Du hast aktuell kein aktives Abo. Bitte aktiviere dein Abo, bevor du eine Arbeitsumgebung erstellst.'
-    );
-    return;
-  }
-
   const formData = new FormData(event.currentTarget);
   const projektname = String(formData.get('projektname') || '').trim();
   const kommissionsnummer = String(formData.get('kommissionsnummer') || '').trim();
