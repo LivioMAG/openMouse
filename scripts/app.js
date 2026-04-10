@@ -717,50 +717,102 @@ const navigate = (route) => {
 };
 
 const bindEvents = () => {
-  app.querySelectorAll('[data-auth-tab]').forEach((el) => {
-    el.addEventListener('click', () => setAuthTab(el.dataset.authTab));
+  app.addEventListener('submit', (event) => {
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement)) return;
+
+    if (form.id === 'form-login') {
+      handleLogin(event);
+      return;
+    }
+    if (form.id === 'form-register') {
+      handleRegister(event);
+      return;
+    }
+    if (form.id === 'form-otp-request') {
+      handleOtpRequest(event);
+      return;
+    }
+    if (form.id === 'form-otp-verify') {
+      handleOtpVerify(event);
+      return;
+    }
+    if (form.id === 'form-create-arbeitsumgebung') {
+      handleCreateArbeitsumgebung(event);
+    }
   });
 
-  const loginForm = app.querySelector('#form-login');
-  if (loginForm) loginForm.addEventListener('submit', handleLogin);
+  app.addEventListener('input', (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
 
-  const registerForm = app.querySelector('#form-register');
-  if (registerForm) registerForm.addEventListener('submit', handleRegister);
-
-  const otpRequestForm = app.querySelector('#form-otp-request');
-  if (otpRequestForm) otpRequestForm.addEventListener('submit', handleOtpRequest);
-
-  const otpVerifyForm = app.querySelector('#form-otp-verify');
-  if (otpVerifyForm) otpVerifyForm.addEventListener('submit', handleOtpVerify);
-
-  const logoutButton = app.querySelector('#logout-button');
-  if (logoutButton) logoutButton.addEventListener('click', handleLogout);
-
-  const toCreateButton = app.querySelector('#create-view-button');
-  if (toCreateButton) toCreateButton.addEventListener('click', () => navigate({ name: 'create' }));
-
-  const backToListButtons = app.querySelectorAll('[data-back-to-list]');
-  backToListButtons.forEach((button) => {
-    button.addEventListener('click', () => navigate({ name: 'list' }));
+    if (target.id === 'documents-search') {
+      updateDocumentsState({ searchTerm: target.value });
+    }
   });
 
-  const createForm = app.querySelector('#form-create-arbeitsumgebung');
-  if (createForm) createForm.addEventListener('submit', handleCreateArbeitsumgebung);
+  app.addEventListener('change', (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    if (target.id === 'documents-upload-input') {
+      handleUploadFile(event);
+    }
+  });
 
-  const detailLinks = app.querySelectorAll('[data-open-detail]');
-  detailLinks.forEach((button) => {
-    button.addEventListener('click', async () => {
-      navigate({ name: 'detail', id: button.dataset.openDetail });
+  app.addEventListener('click', async (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const trigger = target.closest(
+      [
+        '[data-auth-tab]',
+        '#logout-button',
+        '#create-view-button',
+        '[data-back-to-list]',
+        '[data-open-detail]',
+        '[data-detail-tab]',
+        '#documents-create-folder',
+        '[data-open-folder]',
+        '[data-open-file]',
+        '[data-download-file]',
+        '[data-rename-folder]',
+        '[data-delete-folder]',
+        '[data-rename-file]',
+        '[data-delete-file]',
+      ].join(', ')
+    );
+
+    if (!trigger) return;
+
+    if (trigger.matches('[data-auth-tab]')) {
+      setAuthTab(trigger.dataset.authTab);
+      return;
+    }
+
+    if (trigger.matches('#logout-button')) {
+      handleLogout();
+      return;
+    }
+
+    if (trigger.matches('#create-view-button')) {
+      navigate({ name: 'create' });
+      return;
+    }
+
+    if (trigger.matches('[data-back-to-list]')) {
+      navigate({ name: 'list' });
+      return;
+    }
+
+    if (trigger.matches('[data-open-detail]')) {
+      navigate({ name: 'detail', id: trigger.dataset.openDetail });
       if (state.activeDetailTab === 'dokumentenablage') {
         await handleDocumentsTabEnter();
       }
-    });
-  });
+      return;
+    }
 
-  const detailTabs = app.querySelectorAll('[data-detail-tab]');
-  detailTabs.forEach((button) => {
-    button.addEventListener('click', async () => {
-      const nextTab = button.dataset.detailTab;
+    if (trigger.matches('[data-detail-tab]')) {
+      const nextTab = trigger.dataset.detailTab;
       const isSameTab = state.activeDetailTab === nextTab;
       if (!isSameTab) {
         setState({ activeDetailTab: nextTab });
@@ -768,50 +820,47 @@ const bindEvents = () => {
       if (nextTab === 'dokumentenablage') {
         await handleDocumentsTabEnter();
       }
-    });
-  });
+      return;
+    }
 
-  const createFolderButton = app.querySelector('#documents-create-folder');
-  if (createFolderButton) createFolderButton.addEventListener('click', handleCreateFolder);
+    if (trigger.matches('#documents-create-folder')) {
+      handleCreateFolder();
+      return;
+    }
 
-  const uploadInput = app.querySelector('#documents-upload-input');
-  if (uploadInput) uploadInput.addEventListener('change', handleUploadFile);
+    if (trigger.matches('[data-open-folder]')) {
+      updateDocumentsState({ currentFolderId: trigger.dataset.openFolder === 'root' ? null : trigger.dataset.openFolder });
+      return;
+    }
 
-  const searchInput = app.querySelector('#documents-search');
-  if (searchInput) {
-    searchInput.addEventListener('input', (event) => {
-      updateDocumentsState({ searchTerm: event.currentTarget.value });
-    });
-  }
+    if (trigger.matches('[data-open-file]')) {
+      handleOpenFile(trigger.dataset.openFile);
+      return;
+    }
 
-  app.querySelectorAll('[data-open-folder]').forEach((el) => {
-    el.addEventListener('click', () => {
-      updateDocumentsState({ currentFolderId: el.dataset.openFolder === 'root' ? null : el.dataset.openFolder });
-    });
-  });
+    if (trigger.matches('[data-download-file]')) {
+      handleDownloadFile(trigger.dataset.downloadFile);
+      return;
+    }
 
-  app.querySelectorAll('[data-open-file]').forEach((el) => {
-    el.addEventListener('click', () => handleOpenFile(el.dataset.openFile));
-  });
+    if (trigger.matches('[data-rename-folder]')) {
+      handleRenameFolder(trigger.dataset.renameFolder);
+      return;
+    }
 
-  app.querySelectorAll('[data-download-file]').forEach((el) => {
-    el.addEventListener('click', () => handleDownloadFile(el.dataset.downloadFile));
-  });
+    if (trigger.matches('[data-delete-folder]')) {
+      handleDeleteFolder(trigger.dataset.deleteFolder);
+      return;
+    }
 
-  app.querySelectorAll('[data-rename-folder]').forEach((el) => {
-    el.addEventListener('click', () => handleRenameFolder(el.dataset.renameFolder));
-  });
+    if (trigger.matches('[data-rename-file]')) {
+      handleRenameFile(trigger.dataset.renameFile);
+      return;
+    }
 
-  app.querySelectorAll('[data-delete-folder]').forEach((el) => {
-    el.addEventListener('click', () => handleDeleteFolder(el.dataset.deleteFolder));
-  });
-
-  app.querySelectorAll('[data-rename-file]').forEach((el) => {
-    el.addEventListener('click', () => handleRenameFile(el.dataset.renameFile));
-  });
-
-  app.querySelectorAll('[data-delete-file]').forEach((el) => {
-    el.addEventListener('click', () => handleDeleteFile(el.dataset.deleteFile));
+    if (trigger.matches('[data-delete-file]')) {
+      handleDeleteFile(trigger.dataset.deleteFile);
+    }
   });
 };
 
@@ -1124,10 +1173,10 @@ const renderApp = () => {
 
 const render = () => {
   app.innerHTML = state.session ? renderApp() : renderAuth();
-  bindEvents();
 };
 
 const init = async () => {
+  bindEvents();
   const storedViewState = readStoredViewState();
   const {
     data: { session },
