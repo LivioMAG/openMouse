@@ -29,6 +29,7 @@ let documentsRequestId = 0;
 let documentsLoadedWorkspaceId = null;
 let documentsLoadingWorkspaceId = null;
 let documentsLoadPromise = null;
+let initialSessionHydrated = false;
 
 const readStoredViewState = () => {
   try {
@@ -288,22 +289,16 @@ const handleOpenFile = async (fileId) => {
   const file = state.documents.files.find((item) => item.id === fileId);
   if (!file) return;
 
-  const previewWindow = window.open('', '_blank', 'noopener');
   try {
     const { data, error } = await supabase.storage.from('documents').createSignedUrl(file.file_path, 60);
     if (error) throw error;
     if (!data?.signedUrl) throw new Error('Datei konnte nicht geöffnet werden.');
 
-    if (previewWindow) {
-      previewWindow.location.href = data.signedUrl;
-      return;
+    const previewWindow = window.open(data.signedUrl, '_blank', 'noopener,noreferrer');
+    if (!previewWindow) {
+      throw new Error('Pop-up wurde blockiert. Bitte Pop-ups für diese Seite erlauben.');
     }
-
-    window.location.assign(data.signedUrl);
   } catch (error) {
-    if (previewWindow) {
-      previewWindow.close();
-    }
     setError(error.message || 'Datei konnte nicht geöffnet werden.');
   }
 };
@@ -320,21 +315,14 @@ const handleDownloadFile = async (fileId) => {
     if (error) throw error;
     if (!data?.signedUrl) throw new Error('Datei konnte nicht heruntergeladen werden.');
 
-    const response = await fetch(data.signedUrl);
-    if (!response.ok) {
-      throw new Error('Datei konnte nicht heruntergeladen werden.');
-    }
-    const blob = await response.blob();
-    const objectUrl = window.URL.createObjectURL(blob);
-
     const link = document.createElement('a');
-    link.href = objectUrl;
+    link.href = data.signedUrl;
     link.download = file.name;
-    link.rel = 'noopener';
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
     document.body.append(link);
     link.click();
     link.remove();
-    window.URL.revokeObjectURL(objectUrl);
   } catch (error) {
     setError(error.message || 'Datei konnte nicht heruntergeladen werden.');
   }
@@ -1172,11 +1160,17 @@ const init = async () => {
     if (restoredRoute.name === 'detail' && restoredTab === 'dokumentenablage') {
       await handleDocumentsTabEnter();
     }
+    initialSessionHydrated = true;
   } else {
     render();
+    initialSessionHydrated = true;
   }
 
   supabase.auth.onAuthStateChange(async (event, session) => {
+    if (event === 'INITIAL_SESSION' && initialSessionHydrated) {
+      return;
+    }
+
     if (session) {
       const shouldResetRoute = !state.session && event === 'SIGNED_IN';
       setState({
@@ -1186,6 +1180,7 @@ const init = async () => {
       });
       await ensureProfileExists(session.user.id);
       await loadAppData();
+      initialSessionHydrated = true;
     } else {
       documentsLoadedWorkspaceId = null;
       documentsLoadingWorkspaceId = null;
@@ -1212,6 +1207,7 @@ const init = async () => {
       } catch {
         // Silent fail for non-critical UI persistence.
       }
+      initialSessionHydrated = true;
     }
   });
 
