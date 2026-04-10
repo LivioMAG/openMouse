@@ -25,6 +25,7 @@ const state = {
 };
 
 const app = document.getElementById('app');
+let documentsRequestId = 0;
 
 const readStoredViewState = () => {
   try {
@@ -111,6 +112,7 @@ const updateDocumentsState = (patch) => {
 const loadDocuments = async (workspaceId) => {
   if (!state.user || !workspaceId) return;
 
+  const requestId = ++documentsRequestId;
   updateDocumentsState({ loading: true });
 
   try {
@@ -132,12 +134,15 @@ const loadDocuments = async (workspaceId) => {
     if (foldersResponse.error) throw foldersResponse.error;
     if (filesResponse.error) throw filesResponse.error;
 
+    if (requestId !== documentsRequestId) return;
+
     updateDocumentsState({
       folders: foldersResponse.data ?? [],
       files: filesResponse.data ?? [],
       loading: false,
     });
   } catch (error) {
+    if (requestId !== documentsRequestId) return;
     updateDocumentsState({ loading: false });
     setError(error.message || 'Dokumentenablage konnte nicht geladen werden.');
   }
@@ -185,9 +190,17 @@ const getFilteredDocumentItems = () => {
   return { visibleFolders, visibleFiles };
 };
 
-const handleDocumentsTabEnter = async () => {
-  if (state.route.name !== 'detail' || state.documents.loading) return;
+const handleDocumentsTabEnter = async (options = {}) => {
+  const { force = false } = options;
+  if (state.route.name !== 'detail') return;
+  if (state.documents.loading && !force) return;
   await loadDocuments(state.route.id);
+};
+
+const refreshDocumentsOnTabFocus = async () => {
+  if (document.visibilityState !== 'visible') return;
+  if (state.route.name !== 'detail' || state.activeDetailTab !== 'dokumentenablage') return;
+  await handleDocumentsTabEnter({ force: true });
 };
 
 const handleCreateFolder = async () => {
@@ -1148,6 +1161,9 @@ const init = async () => {
       }
     }
   });
+
+  document.addEventListener('visibilitychange', refreshDocumentsOnTabFocus);
+  window.addEventListener('focus', refreshDocumentsOnTabFocus);
 };
 
 init();
