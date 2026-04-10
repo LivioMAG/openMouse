@@ -308,21 +308,18 @@ const handleDownloadFile = async (fileId) => {
   if (!file) return;
 
   try {
-    const { data, error } = await supabase
-      .storage
-      .from('documents')
-      .createSignedUrl(file.file_path, 60, { download: file.name });
+    const { data, error } = await supabase.storage.from('documents').download(file.file_path);
     if (error) throw error;
-    if (!data?.signedUrl) throw new Error('Datei konnte nicht heruntergeladen werden.');
+    if (!data) throw new Error('Datei konnte nicht heruntergeladen werden.');
 
+    const objectUrl = window.URL.createObjectURL(data);
     const link = document.createElement('a');
-    link.href = data.signedUrl;
+    link.href = objectUrl;
     link.download = file.name;
-    link.target = '_blank';
-    link.rel = 'noopener noreferrer';
     document.body.append(link);
     link.click();
     link.remove();
+    window.URL.revokeObjectURL(objectUrl);
   } catch (error) {
     setError(error.message || 'Datei konnte nicht heruntergeladen werden.');
   }
@@ -988,7 +985,7 @@ const renderDetail = () => {
   const tabButtons = detailTabs
     .map(
       (tab) => `
-        <button class="tab ${state.activeDetailTab === tab.id ? 'active' : ''}" data-detail-tab="${tab.id}">
+        <button type="button" class="tab ${state.activeDetailTab === tab.id ? 'active' : ''}" data-detail-tab="${tab.id}">
           <i class="fa-solid ${tab.icon}"></i> ${tab.label}
         </button>
       `
@@ -999,7 +996,7 @@ const renderDetail = () => {
     const breadcrumbs = buildBreadcrumbs()
       .map(
         (item) =>
-          `<button class="breadcrumb-item" data-open-folder="${item.id ?? 'root'}">${escapeHtml(item.name)}</button>`
+          `<button type="button" class="breadcrumb-item" data-open-folder="${item.id ?? 'root'}">${escapeHtml(item.name)}</button>`
       )
       .join('<span class="breadcrumb-sep">/</span>');
     const { visibleFolders, visibleFiles } = getFilteredDocumentItems();
@@ -1008,7 +1005,7 @@ const renderDetail = () => {
       .map(
         (folder) => `
           <article class="doc-item">
-            <button class="doc-open-button" data-open-folder="${folder.id}">
+            <button type="button" class="doc-open-button" data-open-folder="${folder.id}">
               <i class="fa-solid fa-folder"></i>
               <div>
                 <strong>${escapeHtml(folder.name)}</strong>
@@ -1016,8 +1013,8 @@ const renderDetail = () => {
               </div>
             </button>
             <div class="doc-item-actions">
-              <button class="button-secondary" data-rename-folder="${folder.id}"><i class="fa-solid fa-pen"></i></button>
-              <button class="button-secondary" data-delete-folder="${folder.id}"><i class="fa-solid fa-trash"></i></button>
+              <button type="button" class="button-secondary" data-rename-folder="${folder.id}"><i class="fa-solid fa-pen"></i></button>
+              <button type="button" class="button-secondary" data-delete-folder="${folder.id}"><i class="fa-solid fa-trash"></i></button>
             </div>
           </article>
         `
@@ -1028,7 +1025,7 @@ const renderDetail = () => {
       .map(
         (file) => `
           <article class="doc-item">
-            <button class="doc-open-button" data-open-file="${file.id}">
+            <button type="button" class="doc-open-button" data-open-file="${file.id}">
               <i class="fa-solid fa-file"></i>
               <div>
                 <strong>${escapeHtml(file.name)}</strong>
@@ -1036,9 +1033,9 @@ const renderDetail = () => {
               </div>
             </button>
             <div class="doc-item-actions">
-              <button class="button-secondary" data-rename-file="${file.id}"><i class="fa-solid fa-pen"></i></button>
-              <button class="button-secondary" data-download-file="${file.id}"><i class="fa-solid fa-download"></i></button>
-              <button class="button-secondary" data-delete-file="${file.id}"><i class="fa-solid fa-trash"></i></button>
+              <button type="button" class="button-secondary" data-rename-file="${file.id}"><i class="fa-solid fa-pen"></i></button>
+              <button type="button" class="button-secondary" data-download-file="${file.id}"><i class="fa-solid fa-download"></i></button>
+              <button type="button" class="button-secondary" data-delete-file="${file.id}"><i class="fa-solid fa-trash"></i></button>
             </div>
           </article>
         `
@@ -1053,7 +1050,7 @@ const renderDetail = () => {
           <div class="documents-toolbar">
             <h3><i class="fa-solid fa-folder-open"></i> Dokumentenablage</h3>
             <div class="toolbar-actions">
-              <button id="documents-create-folder"><i class="fa-solid fa-folder-plus"></i> Ordner erstellen</button>
+              <button type="button" id="documents-create-folder"><i class="fa-solid fa-folder-plus"></i> Ordner erstellen</button>
               <label class="upload-label">
                 <i class="fa-solid fa-upload"></i> Datei hochladen
                 <input id="documents-upload-input" type="file" />
@@ -1167,7 +1164,7 @@ const init = async () => {
   }
 
   supabase.auth.onAuthStateChange(async (event, session) => {
-    if (event === 'INITIAL_SESSION' && initialSessionHydrated) {
+    if (event === 'INITIAL_SESSION') {
       return;
     }
 
