@@ -13,6 +13,13 @@ const state = {
   pendingOtpEmail: '',
   otpStep: 'request',
   activeDetailTab: 'neuigkeiten',
+  documents: {
+    currentFolderId: null,
+    folders: [],
+    files: [],
+    searchTerm: '',
+    loading: false,
+  },
 };
 
 const app = document.getElementById('app');
@@ -46,6 +53,291 @@ const formatDate = (raw) => {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(date);
+};
+
+const formatFileSize = (bytes) => {
+  if (!Number.isFinite(bytes) || bytes < 0) return '–';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+};
+
+const normalizeFileName = (name = '') =>
+  name
+    .trim()
+    .replaceAll(/\s+/g, '_')
+    .replaceAll(/[^a-zA-Z0-9._-]/g, '');
+
+const updateDocumentsState = (patch) => {
+  setState({
+    documents: {
+      ...state.documents,
+      ...patch,
+    },
+  });
+};
+
+const loadDocuments = async (workspaceId) => {
+  if (!state.user || !workspaceId) return;
+
+  updateDocumentsState({ loading: true });
+
+  try {
+    const [foldersResponse, filesResponse] = await Promise.all([
+      supabase
+        .from('folders')
+        .select('id, name, parent_id, created_at')
+        .eq('user_id', state.user.id)
+        .eq('arbeitsumgebung_id', workspaceId)
+        .order('name', { ascending: true }),
+      supabase
+        .from('files')
+        .select('id, name, file_path, folder_id, size_bytes, created_at')
+        .eq('user_id', state.user.id)
+        .eq('arbeitsumgebung_id', workspaceId)
+        .order('name', { ascending: true }),
+    ]);
+
+    if (foldersResponse.error) throw foldersResponse.error;
+    if (filesResponse.error) throw filesResponse.error;
+
+    updateDocumentsState({
+      folders: foldersResponse.data ?? [],
+      files: filesResponse.data ?? [],
+      loading: false,
+    });
+  } catch (error) {
+    updateDocumentsState({ loading: false });
+    setError(error.message || 'Dokumentenablage konnte nicht geladen werden.');
+  }
+};
+
+const resetDocumentsForWorkspace = () => {
+  setState({
+    documents: {
+      currentFolderId: null,
+      folders: [],
+      files: [],
+      searchTerm: '',
+      loading: false,
+    },
+  });
+};
+
+const buildBreadcrumbs = () => {
+  const folderMap = new Map(state.documents.folders.map((folder) => [folder.id, folder]));
+  const branch = [];
+  let current = state.documents.currentFolderId ? folderMap.get(state.documents.currentFolderId) : null;
+
+  while (current) {
+    branch.push({ id: current.id, name: current.name });
+    current = current.parent_id ? folderMap.get(current.parent_id) : null;
+  }
+
+  return [{ id: null, name: 'Start' }, ...branch.reverse()];
+};
+
+const getFilteredDocumentItems = () => {
+  const query = state.documents.searchTerm.trim().toLowerCase();
+  const visibleFolders = state.documents.folders.filter((folder) => {
+    const inCurrentFolder = folder.parent_id === state.documents.currentFolderId;
+    if (!query) return inCurrentFolder;
+    return inCurrentFolder && folder.name.toLowerCase().includes(query);
+  });
+
+  const visibleFiles = state.documents.files.filter((file) => {
+    const inCurrentFolder = file.folder_id === state.documents.currentFolderId;
+    if (!query) return inCurrentFolder;
+    return inCurrentFolder && file.name.toLowerCase().includes(query);
+  });
+
+  return { visibleFolders, visibleFiles };
+};
+
+const handleDocumentsTabEnter = async () => {
+  if (state.route.name !== 'detail' || state.documents.loading) return;
+  await loadDocuments(state.route.id);
+};
+
+const handleCreateFolder = async () => {
+  const name = window.prompt('Ordnername eingeben:')?.trim();
+  if (!name) return;
+
+  try {
+    const payload = {
+      name,
+      parent_id: state.documents.currentFolderId,
+      user_id: state.user.id,
+      arbeitsumgebung_id: state.route.id,
+    };
+
+    const { error } = await supabase.from('folders').insert(payload);
+    if (error) throw error;
+    await loadDocuments(state.route.id);
+    setMessage('Ordner wurde erstellt.');
+  } catch (error) {
+    setError(error.message || 'Ordner konnte nicht erstellt werden.');
+  }
+};
+
+const handleUploadFile = async (event) => {
+  const file = event.currentTarget.files?.[0];
+  if (!file) return;
+
+  const safeName = normalizeFileName(file.name);
+  if (!safeName) {
+    setError('Dateiname ist ungültig.');
+    event.currentTarget.value = '';
+    return;
+  }
+
+  const folderSegment = state.documents.currentFolderId ?? 'root';
+  const filePath = `${state.user.id}/${state.route.id}/${folderSegment}/${Date.now()}_${safeName}`;
+
+  setLoading(true);
+  try {
+    const uploadResult = await supabase.storage.from('documents').upload(filePath, file, { upsert: false });
+    if (uploadResult.error) throw uploadResult.error;
+
+    const payload = {
+      name: file.name,
+      file_path: filePath,
+      folder_id: state.documents.currentFolderId,
+      user_id: state.user.id,
+      arbeitsumgebung_id: state.route.id,
+      size_bytes: file.size,
+    };
+
+    const { error } = await supabase.from('files').insert(payload);
+    if (error) throw error;
+
+    await loadDocuments(state.route.id);
+    setMessage('Datei wurde hochgeladen.');
+  } catch (error) {
+    setError(error.message || 'Datei konnte nicht hochgeladen werden.');
+  } finally {
+    setLoading(false);
+    event.currentTarget.value = '';
+  }
+};
+
+const handleOpenFile = async (fileId) => {
+  const file = state.documents.files.find((item) => item.id === fileId);
+  if (!file) return;
+
+  try {
+    const { data, error } = await supabase.storage.from('documents').createSignedUrl(file.file_path, 60);
+    if (error) throw error;
+    window.open(data.signedUrl, '_blank', 'noopener');
+  } catch (error) {
+    setError(error.message || 'Datei konnte nicht geöffnet werden.');
+  }
+};
+
+const handleRenameFolder = async (folderId) => {
+  const folder = state.documents.folders.find((item) => item.id === folderId);
+  if (!folder) return;
+
+  const name = window.prompt('Neuer Ordnername:', folder.name)?.trim();
+  if (!name || name === folder.name) return;
+
+  try {
+    const { error } = await supabase.from('folders').update({ name }).eq('id', folderId).eq('user_id', state.user.id);
+    if (error) throw error;
+    await loadDocuments(state.route.id);
+    setMessage('Ordner wurde umbenannt.');
+  } catch (error) {
+    setError(error.message || 'Ordner konnte nicht umbenannt werden.');
+  }
+};
+
+const handleRenameFile = async (fileId) => {
+  const file = state.documents.files.find((item) => item.id === fileId);
+  if (!file) return;
+
+  const name = window.prompt('Neuer Dateiname:', file.name)?.trim();
+  if (!name || name === file.name) return;
+
+  try {
+    const { error } = await supabase.from('files').update({ name }).eq('id', fileId).eq('user_id', state.user.id);
+    if (error) throw error;
+    await loadDocuments(state.route.id);
+    setMessage('Datei wurde umbenannt.');
+  } catch (error) {
+    setError(error.message || 'Datei konnte nicht umbenannt werden.');
+  }
+};
+
+const handleDeleteFile = async (fileId) => {
+  const file = state.documents.files.find((item) => item.id === fileId);
+  if (!file) return;
+  const confirmed = window.confirm(`Datei „${file.name}“ wirklich löschen?`);
+  if (!confirmed) return;
+
+  try {
+    const removeResult = await supabase.storage.from('documents').remove([file.file_path]);
+    if (removeResult.error) throw removeResult.error;
+
+    const { error } = await supabase.from('files').delete().eq('id', fileId).eq('user_id', state.user.id);
+    if (error) throw error;
+    await loadDocuments(state.route.id);
+    setMessage('Datei wurde gelöscht.');
+  } catch (error) {
+    setError(error.message || 'Datei konnte nicht gelöscht werden.');
+  }
+};
+
+const getDescendantFolderIds = (folderId) => {
+  const childrenMap = new Map();
+  state.documents.folders.forEach((folder) => {
+    const key = folder.parent_id ?? 'root';
+    const entries = childrenMap.get(key) ?? [];
+    entries.push(folder.id);
+    childrenMap.set(key, entries);
+  });
+
+  const stack = [folderId];
+  const descendants = [];
+
+  while (stack.length) {
+    const currentId = stack.pop();
+    descendants.push(currentId);
+    const children = childrenMap.get(currentId) ?? [];
+    children.forEach((childId) => stack.push(childId));
+  }
+
+  return descendants;
+};
+
+const handleDeleteFolder = async (folderId) => {
+  const folder = state.documents.folders.find((item) => item.id === folderId);
+  if (!folder) return;
+  const confirmed = window.confirm(`Ordner „${folder.name}“ inklusive Inhalt wirklich löschen?`);
+  if (!confirmed) return;
+
+  try {
+    const folderIds = getDescendantFolderIds(folderId);
+    const filesToDelete = state.documents.files.filter((file) => folderIds.includes(file.folder_id));
+    const filePaths = filesToDelete.map((file) => file.file_path);
+
+    if (filePaths.length) {
+      const storageResult = await supabase.storage.from('documents').remove(filePaths);
+      if (storageResult.error) throw storageResult.error;
+    }
+
+    const { error } = await supabase.from('folders').delete().in('id', folderIds).eq('user_id', state.user.id);
+    if (error) throw error;
+
+    if (state.documents.currentFolderId && folderIds.includes(state.documents.currentFolderId)) {
+      updateDocumentsState({ currentFolderId: folder.parent_id ?? null });
+    }
+
+    await loadDocuments(state.route.id);
+    setMessage('Ordner wurde gelöscht.');
+  } catch (error) {
+    setError(error.message || 'Ordner konnte nicht gelöscht werden.');
+  }
 };
 
 const fetchProfile = async () => {
@@ -320,12 +612,22 @@ const setAuthTab = (tab) => {
 };
 
 const navigate = (route) => {
+  const isChangingDetailWorkspace =
+    route.name === 'detail' && (state.route.name !== 'detail' || state.route.id !== route.id);
+
+  if (isChangingDetailWorkspace) {
+    resetDocumentsForWorkspace();
+  }
+
   setState({
     route,
     error: null,
     message: null,
     activeDetailTab: route.name === 'detail' ? state.activeDetailTab : 'neuigkeiten',
   });
+  if (route.name !== 'detail') {
+    resetDocumentsForWorkspace();
+  }
 };
 
 const bindEvents = () => {
@@ -361,16 +663,61 @@ const bindEvents = () => {
 
   const detailLinks = app.querySelectorAll('[data-open-detail]');
   detailLinks.forEach((button) => {
-    button.addEventListener('click', () => {
+    button.addEventListener('click', async () => {
       navigate({ name: 'detail', id: button.dataset.openDetail });
+      if (state.activeDetailTab === 'dokumentenablage') {
+        await handleDocumentsTabEnter();
+      }
     });
   });
 
   const detailTabs = app.querySelectorAll('[data-detail-tab]');
   detailTabs.forEach((button) => {
-    button.addEventListener('click', () => {
+    button.addEventListener('click', async () => {
       setState({ activeDetailTab: button.dataset.detailTab });
+      if (button.dataset.detailTab === 'dokumentenablage') {
+        await handleDocumentsTabEnter();
+      }
     });
+  });
+
+  const createFolderButton = app.querySelector('#documents-create-folder');
+  if (createFolderButton) createFolderButton.addEventListener('click', handleCreateFolder);
+
+  const uploadInput = app.querySelector('#documents-upload-input');
+  if (uploadInput) uploadInput.addEventListener('change', handleUploadFile);
+
+  const searchInput = app.querySelector('#documents-search');
+  if (searchInput) {
+    searchInput.addEventListener('input', (event) => {
+      updateDocumentsState({ searchTerm: event.currentTarget.value });
+    });
+  }
+
+  app.querySelectorAll('[data-open-folder]').forEach((el) => {
+    el.addEventListener('click', () => {
+      updateDocumentsState({ currentFolderId: el.dataset.openFolder === 'root' ? null : el.dataset.openFolder });
+    });
+  });
+
+  app.querySelectorAll('[data-open-file]').forEach((el) => {
+    el.addEventListener('click', () => handleOpenFile(el.dataset.openFile));
+  });
+
+  app.querySelectorAll('[data-rename-folder]').forEach((el) => {
+    el.addEventListener('click', () => handleRenameFolder(el.dataset.renameFolder));
+  });
+
+  app.querySelectorAll('[data-delete-folder]').forEach((el) => {
+    el.addEventListener('click', () => handleDeleteFolder(el.dataset.deleteFolder));
+  });
+
+  app.querySelectorAll('[data-rename-file]').forEach((el) => {
+    el.addEventListener('click', () => handleRenameFile(el.dataset.renameFile));
+  });
+
+  app.querySelectorAll('[data-delete-file]').forEach((el) => {
+    el.addEventListener('click', () => handleDeleteFile(el.dataset.deleteFile));
   });
 };
 
@@ -551,17 +898,100 @@ const renderDetail = () => {
     )
     .join('');
 
+  const renderDocumentsPanel = () => {
+    const breadcrumbs = buildBreadcrumbs()
+      .map(
+        (item) =>
+          `<button class="breadcrumb-item" data-open-folder="${item.id ?? 'root'}">${escapeHtml(item.name)}</button>`
+      )
+      .join('<span class="breadcrumb-sep">/</span>');
+    const { visibleFolders, visibleFiles } = getFilteredDocumentItems();
+
+    const folderRows = visibleFolders
+      .map(
+        (folder) => `
+          <article class="doc-item">
+            <button class="doc-open-button" data-open-folder="${folder.id}">
+              <i class="fa-solid fa-folder"></i>
+              <div>
+                <strong>${escapeHtml(folder.name)}</strong>
+                <small>${escapeHtml(formatDate(folder.created_at))}</small>
+              </div>
+            </button>
+            <div class="doc-item-actions">
+              <button class="button-secondary" data-rename-folder="${folder.id}"><i class="fa-solid fa-pen"></i></button>
+              <button class="button-secondary" data-delete-folder="${folder.id}"><i class="fa-solid fa-trash"></i></button>
+            </div>
+          </article>
+        `
+      )
+      .join('');
+
+    const fileRows = visibleFiles
+      .map(
+        (file) => `
+          <article class="doc-item">
+            <button class="doc-open-button" data-open-file="${file.id}">
+              <i class="fa-solid fa-file"></i>
+              <div>
+                <strong>${escapeHtml(file.name)}</strong>
+                <small>${escapeHtml(formatDate(file.created_at))} · ${escapeHtml(formatFileSize(file.size_bytes))}</small>
+              </div>
+            </button>
+            <div class="doc-item-actions">
+              <button class="button-secondary" data-rename-file="${file.id}"><i class="fa-solid fa-pen"></i></button>
+              <button class="button-secondary" data-delete-file="${file.id}"><i class="fa-solid fa-trash"></i></button>
+            </div>
+          </article>
+        `
+      )
+      .join('');
+
+    const hasItems = visibleFolders.length > 0 || visibleFiles.length > 0;
+
+    return `
+      <section class="tab-panel ${state.activeDetailTab === 'dokumentenablage' ? 'active' : ''}">
+        <div class="detail-section documents-section">
+          <div class="documents-toolbar">
+            <h3><i class="fa-solid fa-folder-open"></i> Dokumentenablage</h3>
+            <div class="toolbar-actions">
+              <button id="documents-create-folder"><i class="fa-solid fa-folder-plus"></i> Ordner erstellen</button>
+              <label class="upload-label">
+                <i class="fa-solid fa-upload"></i> Datei hochladen
+                <input id="documents-upload-input" type="file" />
+              </label>
+            </div>
+          </div>
+          <div class="documents-controls">
+            <div class="breadcrumbs">${breadcrumbs}</div>
+            <input id="documents-search" type="search" placeholder="Suche nach Ordnern und Dateien…" value="${escapeHtml(state.documents.searchTerm)}" />
+          </div>
+          ${
+            state.documents.loading
+              ? '<p class="subtitle">Dokumentenablage lädt…</p>'
+              : hasItems
+                ? `<div class="documents-list">${folderRows}${fileRows}</div>`
+                : '<div class="empty-state"><p>Keine Ordner oder Dateien im aktuellen Bereich.</p></div>'
+          }
+        </div>
+      </section>
+    `;
+  };
+
   const tabPanels = detailTabs
-    .map(
-      (tab) => `
+    .map((tab) => {
+      if (tab.id === 'dokumentenablage') {
+        return renderDocumentsPanel();
+      }
+      return `
         <section class="tab-panel ${state.activeDetailTab === tab.id ? 'active' : ''}">
           <div class="detail-section">
             <h3><i class="fa-solid ${tab.icon}"></i> ${tab.label}</h3>
             <p>Dieser Bereich für „${tab.label}“ ist bereit.</p>
           </div>
         </section>
-      `
-    )
+      `;
+    })
     .join('');
 
   return `
@@ -643,6 +1073,13 @@ const init = async () => {
         pendingOtpEmail: '',
         otpStep: 'request',
         activeDetailTab: 'neuigkeiten',
+        documents: {
+          currentFolderId: null,
+          folders: [],
+          files: [],
+          searchTerm: '',
+          loading: false,
+        },
       });
     }
   });
