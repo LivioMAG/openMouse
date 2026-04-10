@@ -741,7 +741,7 @@ const bindEvents = () => {
         setState({ activeDetailTab: nextTab });
       }
       if (nextTab === 'dokumentenablage') {
-        await handleDocumentsTabEnter({ force: true });
+        await handleDocumentsTabEnter();
       }
     });
   });
