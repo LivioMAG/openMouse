@@ -169,6 +169,11 @@ body {
   color: #86efac;
 }
 
+.slot.incorrect {
+  border-color: #ef4444;
+  color: #fca5a5;
+}
+
 button {
   border: 0;
   border-radius: 10px;
