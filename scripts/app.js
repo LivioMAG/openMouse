@@ -130,7 +130,10 @@ const renderBuilder = () => {
     const slotNumber = slot.dataset.slot;
     const currentPart = state.builder.slots[slotNumber];
     const expectedPart = slot.dataset.accept;
+    const isCorrectSlot = Boolean(currentPart) && currentPart === expectedPart;
     slot.classList.toggle('filled', Boolean(currentPart));
+    slot.classList.toggle('correct', isCorrectSlot);
+    slot.classList.toggle('incorrect', Boolean(currentPart) && !isCorrectSlot);
     slot.textContent = currentPart
       ? `${slotNumber}. ${builderEls.parts.find((part) => part.dataset.part === currentPart)?.textContent ?? ''}`
       : `${slotNumber}. ${
@@ -328,6 +331,7 @@ const checkBuilder = () => {
 
 const handlePartDrop = (slot, partKey) => {
   const slotNumber = slot.dataset.slot;
+  const expectedPart = slot.dataset.accept;
   const alreadyUsed = Object.values(state.builder.slots).includes(partKey);
   if (alreadyUsed) {
     setHint(builderEls.feedback, 'Dieses Bauteil ist bereits gesetzt.');
@@ -335,7 +339,17 @@ const handlePartDrop = (slot, partKey) => {
   }
 
   state.builder.slots[slotNumber] = partKey;
-  setHint(builderEls.feedback, 'Bauteil platziert. Fülle alle Felder und prüfe den Stromkreis.');
+  if (partKey === expectedPart) {
+    setHint(
+      builderEls.feedback,
+      'Richtig platziert. Du kannst mit dem nächsten Bauteil weitermachen.'
+    );
+  } else {
+    setHint(
+      builderEls.feedback,
+      'Das passt hier nicht. Du kannst das Bauteil anklicken und auf den richtigen Platz setzen.'
+    );
+  }
   render();
 };
 
