@@ -3,18 +3,111 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Arbeitsumgebungen</title>
-    <link
-      rel="stylesheet"
-      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"
-      integrity="sha512-Evv84Mr4kqVGRNSgIGL/F/aIDqQb7xQ2vcrdIwxfjThSH8CSR7PBEakCr51Ck+w+/U6swU2Im1vVX0SVk9ABhg=="
-      crossorigin="anonymous"
-      referrerpolicy="no-referrer"
-    />
+    <title>SchaltungsTrainer – Dashboard</title>
     <link rel="stylesheet" href="../styles/main.css" />
   </head>
   <body>
-    <div id="app" class="app-shell"></div>
-    <script type="module" src="../scripts/app.js"></script>
+    <header class="hero">
+      <p class="hero-kicker">Elektrotechnik für Lehrlinge</p>
+      <h1>SchaltungsTrainer</h1>
+      <p class="hero-copy">
+        Lerne Schema-0, Schema-3 und Schema-6 spielerisch. Wähle eine Übung, schalte die
+        virtuellen Schalter und löse die Aufgaben.
+      </p>
+    </header>
+
+    <main class="layout">
+      <section id="dashboard" class="panel active" aria-labelledby="dashboard-title">
+        <div class="panel-head">
+          <h2 id="dashboard-title">Dashboard</h2>
+          <div class="score-pill" id="totalScore" aria-live="polite">0 Punkte</div>
+        </div>
+
+        <div class="exercise-grid">
+          <article class="exercise-card">
+            <h3>Übung 1 – Schema 0</h3>
+            <p>Eine Schaltstelle, eine Lampe. Verstehe den einfachen Stromkreis.</p>
+            <button class="start-button" data-open-exercise="schema0">Übung starten</button>
+          </article>
+
+          <article class="exercise-card">
+            <h3>Übung 2 – Schema 3</h3>
+            <p>Zwei Schaltstellen. Die Lampe kann von zwei Orten aus geschaltet werden.</p>
+            <button class="start-button" data-open-exercise="schema3">Übung starten</button>
+          </article>
+
+          <article class="exercise-card">
+            <h3>Übung 3 – Schema 6</h3>
+            <p>Drei Schaltstellen. Lerne das Prinzip einer Mehrfachschaltung.</p>
+            <button class="start-button" data-open-exercise="schema6">Übung starten</button>
+          </article>
+        </div>
+      </section>
+
+      <section id="exercise-schema0" class="panel" aria-labelledby="schema0-title">
+        <div class="panel-head">
+          <h2 id="schema0-title">Schema-0-Schaltung</h2>
+          <button class="ghost" data-back>← Zurück zum Dashboard</button>
+        </div>
+
+        <p class="task" id="schema0Task"></p>
+        <div class="circuit">
+          <button class="switch" id="schema0Switch" type="button" aria-live="polite"></button>
+          <div class="wire"></div>
+          <div class="lamp" id="schema0Lamp" aria-live="polite">AUS</div>
+        </div>
+
+        <div class="panel-actions">
+          <button id="schema0Reset" class="ghost" type="button">Neu starten</button>
+          <span class="feedback" id="schema0Feedback" aria-live="polite"></span>
+        </div>
+      </section>
+
+      <section id="exercise-schema3" class="panel" aria-labelledby="schema3-title">
+        <div class="panel-head">
+          <h2 id="schema3-title">Schema-3-Schaltung</h2>
+          <button class="ghost" data-back>← Zurück zum Dashboard</button>
+        </div>
+
+        <p class="task" id="schema3Task"></p>
+        <div class="circuit">
+          <button class="switch" id="schema3SwitchA" type="button"></button>
+          <div class="wire"></div>
+          <button class="switch" id="schema3SwitchB" type="button"></button>
+          <div class="wire"></div>
+          <div class="lamp" id="schema3Lamp" aria-live="polite">AUS</div>
+        </div>
+
+        <div class="panel-actions">
+          <button id="schema3Reset" class="ghost" type="button">Neu starten</button>
+          <span class="feedback" id="schema3Feedback" aria-live="polite"></span>
+        </div>
+      </section>
+
+      <section id="exercise-schema6" class="panel" aria-labelledby="schema6-title">
+        <div class="panel-head">
+          <h2 id="schema6-title">Schema-6-Schaltung</h2>
+          <button class="ghost" data-back>← Zurück zum Dashboard</button>
+        </div>
+
+        <p class="task" id="schema6Task"></p>
+        <div class="circuit">
+          <button class="switch" id="schema6SwitchA" type="button"></button>
+          <div class="wire"></div>
+          <button class="switch" id="schema6SwitchB" type="button"></button>
+          <div class="wire"></div>
+          <button class="switch" id="schema6SwitchC" type="button"></button>
+          <div class="wire"></div>
+          <div class="lamp" id="schema6Lamp" aria-live="polite">AUS</div>
+        </div>
+
+        <div class="panel-actions">
+          <button id="schema6Reset" class="ghost" type="button">Neu starten</button>
+          <span class="feedback" id="schema6Feedback" aria-live="polite"></span>
+        </div>
+      </section>
+    </main>
+
+    <script src="../scripts/app.js"></script>
   </body>
 </html>

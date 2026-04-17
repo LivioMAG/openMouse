@@ -1,1299 +1,280 @@
-import { supabase } from './supabaseClient.js';
-
-const VIEW_STATE_STORAGE_KEY = 'openmouse:view-state';
-
 const state = {
-  session: null,
-  user: null,
-  profile: null,
-  arbeitsumgebungen: [],
-  activeAuthTab: 'anmelden',
-  loading: false,
-  message: null,
-  error: null,
-  route: { name: 'list' },
-  pendingOtpEmail: '',
-  otpStep: 'request',
-  activeDetailTab: 'neuigkeiten',
-  documents: {
-    currentFolderId: null,
-    folders: [],
-    files: [],
-    searchTerm: '',
-    loading: false,
+  score: 0,
+  view: 'dashboard',
+  schema0: {
+    switchOn: false,
+    sawOn: false,
+    sawOffAfterOn: false,
+    completed: false,
+  },
+  schema3: {
+    a: false,
+    b: false,
+    sawOn: false,
+    sawOffAfterOn: false,
+    completed: false,
+  },
+  schema6: {
+    a: false,
+    b: false,
+    c: false,
+    targetLampOn: true,
+    reachedTarget: false,
+    completed: false,
   },
 };
 
-const app = document.getElementById('app');
-let documentsRequestId = 0;
-let documentsLoadedWorkspaceId = null;
-let documentsLoadingWorkspaceId = null;
-let documentsLoadPromise = null;
-let documentsAutoRefreshInFlight = false;
-let initialSessionHydrated = false;
-
-const readStoredViewState = () => {
-  try {
-    const raw = window.sessionStorage.getItem(VIEW_STATE_STORAGE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
+const panels = {
+  dashboard: document.getElementById('dashboard'),
+  schema0: document.getElementById('exercise-schema0'),
+  schema3: document.getElementById('exercise-schema3'),
+  schema6: document.getElementById('exercise-schema6'),
 };
 
-const writeStoredViewState = () => {
-  if (!state.session) return;
+const scoreEl = document.getElementById('totalScore');
 
-  try {
-    window.sessionStorage.setItem(
-      VIEW_STATE_STORAGE_KEY,
-      JSON.stringify({
-        route: state.route,
-        activeDetailTab: state.activeDetailTab,
-        currentFolderId: state.documents.currentFolderId,
-      })
-    );
-  } catch {
-    // Silent fail for non-critical UI persistence.
-  }
+const schema0Els = {
+  task: document.getElementById('schema0Task'),
+  switch: document.getElementById('schema0Switch'),
+  lamp: document.getElementById('schema0Lamp'),
+  feedback: document.getElementById('schema0Feedback'),
+  reset: document.getElementById('schema0Reset'),
 };
 
-const setState = (patch) => {
-  Object.assign(state, patch);
-  writeStoredViewState();
-  render();
+const schema3Els = {
+  task: document.getElementById('schema3Task'),
+  switchA: document.getElementById('schema3SwitchA'),
+  switchB: document.getElementById('schema3SwitchB'),
+  lamp: document.getElementById('schema3Lamp'),
+  feedback: document.getElementById('schema3Feedback'),
+  reset: document.getElementById('schema3Reset'),
 };
 
-const setLoading = (loading) => setState({ loading });
-const setError = (error) => setState({ error, message: null });
-const setMessage = (message) => setState({ message, error: null });
-
-const escapeHtml = (value = '') =>
-  value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
-
-const isEmailValid = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-const hasActiveSubscription = (profile) =>
-  profile?.has_subscription === true || profile?.has_susrcription === true;
-
-const formatDate = (raw) => {
-  if (!raw) return '–';
-  const date = new Date(raw);
-  if (Number.isNaN(date.getTime())) return '–';
-  return new Intl.DateTimeFormat('de-DE', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(date);
+const schema6Els = {
+  task: document.getElementById('schema6Task'),
+  switchA: document.getElementById('schema6SwitchA'),
+  switchB: document.getElementById('schema6SwitchB'),
+  switchC: document.getElementById('schema6SwitchC'),
+  lamp: document.getElementById('schema6Lamp'),
+  feedback: document.getElementById('schema6Feedback'),
+  reset: document.getElementById('schema6Reset'),
 };
 
-const formatFileSize = (bytes) => {
-  if (!Number.isFinite(bytes) || bytes < 0) return '–';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-};
-
-const normalizeFileName = (name = '') =>
-  name
-    .trim()
-    .replaceAll(/\s+/g, '_')
-    .replaceAll(/[^a-zA-Z0-9._-]/g, '');
-
-const updateDocumentsState = (patch) => {
-  setState({
-    documents: {
-      ...state.documents,
-      ...patch,
-    },
+const setView = (view) => {
+  state.view = view;
+  Object.entries(panels).forEach(([key, panel]) => {
+    panel.classList.toggle('active', key === view);
   });
 };
 
-const loadDocuments = async (workspaceId, options = {}) => {
-  const { force = false } = options;
-
-  if (!state.user || !workspaceId) {
-    updateDocumentsState({ loading: false });
-    return;
-  }
-
-  if (documentsLoadPromise && documentsLoadingWorkspaceId === workspaceId) {
-    return documentsLoadPromise;
-  }
-
-  const requestId = ++documentsRequestId;
-  documentsLoadingWorkspaceId = workspaceId;
-  updateDocumentsState({ loading: true });
-
-  documentsLoadPromise = (async () => {
-    try {
-      const [foldersResponse, filesResponse] = await Promise.all([
-        supabase
-          .from('folders')
-          .select('id, name, parent_id, created_at')
-          .eq('user_id', state.user.id)
-          .eq('arbeitsumgebung_id', workspaceId)
-          .order('name', { ascending: true }),
-        supabase
-          .from('files')
-          .select('id, name, file_path, folder_id, size_bytes, created_at')
-          .eq('user_id', state.user.id)
-          .eq('arbeitsumgebung_id', workspaceId)
-          .order('name', { ascending: true }),
-      ]);
-
-      if (foldersResponse.error) throw foldersResponse.error;
-      if (filesResponse.error) throw filesResponse.error;
-
-      if (requestId !== documentsRequestId) return;
-
-      updateDocumentsState({
-        folders: foldersResponse.data ?? [],
-        files: filesResponse.data ?? [],
-        loading: false,
-      });
-      documentsLoadedWorkspaceId = workspaceId;
-    } catch (error) {
-      if (requestId !== documentsRequestId) return;
-      updateDocumentsState({ loading: false });
-      setError(error.message || 'Dokumentenablage konnte nicht geladen werden.');
-    } finally {
-      if (documentsLoadingWorkspaceId === workspaceId) {
-        documentsLoadingWorkspaceId = null;
-        documentsLoadPromise = null;
-      }
-    }
-  })();
-
-  return documentsLoadPromise;
+const updateScore = () => {
+  scoreEl.textContent = `${state.score} Punkte`;
 };
 
-const reloadDocuments = async () => {
-  if (state.route.name !== 'detail') return;
-  await loadDocuments(state.route.id, { force: true });
+const updateLamp = (lampElement, lampOn) => {
+  lampElement.classList.toggle('on', lampOn);
+  lampElement.textContent = lampOn ? 'AN' : 'AUS';
 };
 
-const resetDocumentsForWorkspace = () => {
-  documentsLoadedWorkspaceId = null;
-  documentsLoadingWorkspaceId = null;
-  documentsLoadPromise = null;
-  setState({
-    documents: {
-      currentFolderId: null,
-      folders: [],
-      files: [],
-      searchTerm: '',
-      loading: false,
-    },
-  });
+const markSuccess = (feedbackElement, text) => {
+  feedbackElement.textContent = text;
+  feedbackElement.classList.add('success');
 };
 
-const buildBreadcrumbs = () => {
-  const folderMap = new Map(state.documents.folders.map((folder) => [folder.id, folder]));
-  const branch = [];
-  let current = state.documents.currentFolderId ? folderMap.get(state.documents.currentFolderId) : null;
-
-  while (current) {
-    branch.push({ id: current.id, name: current.name });
-    current = current.parent_id ? folderMap.get(current.parent_id) : null;
-  }
-
-  return [{ id: null, name: 'Start' }, ...branch.reverse()];
+const setHint = (feedbackElement, text) => {
+  feedbackElement.textContent = text;
+  feedbackElement.classList.remove('success');
 };
 
-const getFilteredDocumentItems = () => {
-  const query = state.documents.searchTerm.trim().toLowerCase();
-  const visibleFolders = state.documents.folders.filter((folder) => {
-    const inCurrentFolder = folder.parent_id === state.documents.currentFolderId;
-    if (!query) return inCurrentFolder;
-    return inCurrentFolder && folder.name.toLowerCase().includes(query);
-  });
+const getSchema3LampOn = () => state.schema3.a !== state.schema3.b;
+const getSchema6LampOn = () => Number(state.schema6.a) + Number(state.schema6.b) + Number(state.schema6.c) >= 2;
 
-  const visibleFiles = state.documents.files.filter((file) => {
-    const inCurrentFolder = file.folder_id === state.documents.currentFolderId;
-    if (!query) return inCurrentFolder;
-    return inCurrentFolder && file.name.toLowerCase().includes(query);
-  });
+const renderSchema0 = () => {
+  const { switchOn, completed } = state.schema0;
 
-  return { visibleFolders, visibleFiles };
+  schema0Els.task.textContent = completed
+    ? 'Geschafft! Du hast die Lampe mit einem Schalter ein- und ausgeschaltet.'
+    : 'Aufgabe: Schalte die Lampe zuerst EIN und danach wieder AUS.';
+
+  schema0Els.switch.textContent = switchOn ? 'Schalter: EIN' : 'Schalter: AUS';
+  schema0Els.switch.classList.toggle('on', switchOn);
+  updateLamp(schema0Els.lamp, switchOn);
 };
 
-const handleDocumentsTabEnter = async (options = {}) => {
-  const { force = false } = options;
-  if (state.route.name !== 'detail') return;
-  if (!force && documentsLoadedWorkspaceId === state.route.id) return;
-  await loadDocuments(state.route.id, { force });
+const renderSchema3 = () => {
+  const completed = state.schema3.completed;
+  const lampOn = getSchema3LampOn();
+
+  schema3Els.task.textContent = completed
+    ? 'Top! Du hast gezeigt, dass zwei Schalter eine Lampe steuern können.'
+    : 'Aufgabe: Nutze beide Schalter mindestens einmal, bringe die Lampe EIN und danach wieder AUS.';
+
+  schema3Els.switchA.textContent = `Schalter A: ${state.schema3.a ? 'oben' : 'unten'}`;
+  schema3Els.switchB.textContent = `Schalter B: ${state.schema3.b ? 'oben' : 'unten'}`;
+  schema3Els.switchA.classList.toggle('on', state.schema3.a);
+  schema3Els.switchB.classList.toggle('on', state.schema3.b);
+  updateLamp(schema3Els.lamp, lampOn);
 };
 
-const handleCreateFolder = async () => {
-  const name = window.prompt('Ordnername eingeben:')?.trim();
-  if (!name) return;
-
-  try {
-    const payload = {
-      name,
-      parent_id: state.documents.currentFolderId,
-      user_id: state.user.id,
-      arbeitsumgebung_id: state.route.id,
-    };
-
-    const { error } = await supabase.from('folders').insert(payload);
-    if (error) throw error;
-    await reloadDocuments();
-    setMessage('Ordner wurde erstellt.');
-  } catch (error) {
-    setError(error.message || 'Ordner konnte nicht erstellt werden.');
-  }
-};
-
-const handleUploadFile = async (event) => {
-  const file = event.currentTarget.files?.[0];
-  if (!file) return;
-
-  const safeName = normalizeFileName(file.name);
-  if (!safeName) {
-    setError('Dateiname ist ungültig.');
-    event.currentTarget.value = '';
-    return;
-  }
-
-  const folderSegment = state.documents.currentFolderId ?? 'root';
-  const filePath = `${state.user.id}/${state.route.id}/${folderSegment}/${Date.now()}_${safeName}`;
-
-  setLoading(true);
-  try {
-    const uploadResult = await supabase.storage.from('documents').upload(filePath, file, { upsert: false });
-    if (uploadResult.error) throw uploadResult.error;
-
-    const payload = {
-      name: file.name,
-      file_path: filePath,
-      folder_id: state.documents.currentFolderId,
-      user_id: state.user.id,
-      arbeitsumgebung_id: state.route.id,
-      size_bytes: file.size,
-    };
-
-    const { error } = await supabase.from('files').insert(payload);
-    if (error) throw error;
-
-    await reloadDocuments();
-    setMessage('Datei wurde hochgeladen.');
-  } catch (error) {
-    setError(error.message || 'Datei konnte nicht hochgeladen werden.');
-  } finally {
-    setLoading(false);
-    event.currentTarget.value = '';
-  }
-};
-
-const handleOpenFile = async (fileId) => {
-  const file = state.documents.files.find((item) => item.id === fileId);
-  if (!file) return;
-
-  try {
-    const { data, error } = await supabase.storage.from('documents').createSignedUrl(file.file_path, 60);
-    if (error) throw error;
-    if (!data?.signedUrl) throw new Error('Datei konnte nicht geöffnet werden.');
-
-    const previewWindow = window.open(data.signedUrl, '_blank', 'noopener,noreferrer');
-    if (!previewWindow) {
-      throw new Error('Pop-up wurde blockiert. Bitte Pop-ups für diese Seite erlauben.');
-    }
-  } catch (error) {
-    setError(error.message || 'Datei konnte nicht geöffnet werden.');
-  }
-};
-
-const handleDownloadFile = async (fileId) => {
-  const file = state.documents.files.find((item) => item.id === fileId);
-  if (!file) return;
-
-  try {
-    const { data, error } = await supabase.storage.from('documents').download(file.file_path);
-    if (error) throw error;
-    if (!data) throw new Error('Datei konnte nicht heruntergeladen werden.');
-
-    const objectUrl = window.URL.createObjectURL(data);
-    const link = document.createElement('a');
-    link.href = objectUrl;
-    link.download = file.name;
-    document.body.append(link);
-    link.click();
-    link.remove();
-    window.URL.revokeObjectURL(objectUrl);
-  } catch (error) {
-    setError(error.message || 'Datei konnte nicht heruntergeladen werden.');
-  }
-};
-
-const handleRenameFolder = async (folderId) => {
-  const folder = state.documents.folders.find((item) => item.id === folderId);
-  if (!folder) return;
-
-  const name = window.prompt('Neuer Ordnername:', folder.name)?.trim();
-  if (!name || name === folder.name) return;
-
-  try {
-    const { error } = await supabase.from('folders').update({ name }).eq('id', folderId).eq('user_id', state.user.id);
-    if (error) throw error;
-    await reloadDocuments();
-    setMessage('Ordner wurde umbenannt.');
-  } catch (error) {
-    setError(error.message || 'Ordner konnte nicht umbenannt werden.');
-  }
-};
-
-const handleRenameFile = async (fileId) => {
-  const file = state.documents.files.find((item) => item.id === fileId);
-  if (!file) return;
-
-  const name = window.prompt('Neuer Dateiname:', file.name)?.trim();
-  if (!name || name === file.name) return;
-
-  try {
-    const { error } = await supabase.from('files').update({ name }).eq('id', fileId).eq('user_id', state.user.id);
-    if (error) throw error;
-    await reloadDocuments();
-    setMessage('Datei wurde umbenannt.');
-  } catch (error) {
-    setError(error.message || 'Datei konnte nicht umbenannt werden.');
-  }
-};
-
-const handleDeleteFile = async (fileId) => {
-  const file = state.documents.files.find((item) => item.id === fileId);
-  if (!file) return;
-  const confirmed = window.confirm(`Datei „${file.name}“ wirklich löschen?`);
-  if (!confirmed) return;
-
-  try {
-    const removeResult = await supabase.storage.from('documents').remove([file.file_path]);
-    if (removeResult.error) throw removeResult.error;
-
-    const { error } = await supabase.from('files').delete().eq('id', fileId).eq('user_id', state.user.id);
-    if (error) throw error;
-    await reloadDocuments();
-    setMessage('Datei wurde gelöscht.');
-  } catch (error) {
-    setError(error.message || 'Datei konnte nicht gelöscht werden.');
-  }
-};
-
-const getDescendantFolderIds = (folderId) => {
-  const childrenMap = new Map();
-  state.documents.folders.forEach((folder) => {
-    const key = folder.parent_id ?? 'root';
-    const entries = childrenMap.get(key) ?? [];
-    entries.push(folder.id);
-    childrenMap.set(key, entries);
-  });
-
-  const stack = [folderId];
-  const descendants = [];
-
-  while (stack.length) {
-    const currentId = stack.pop();
-    descendants.push(currentId);
-    const children = childrenMap.get(currentId) ?? [];
-    children.forEach((childId) => stack.push(childId));
-  }
-
-  return descendants;
-};
-
-const handleDeleteFolder = async (folderId) => {
-  const folder = state.documents.folders.find((item) => item.id === folderId);
-  if (!folder) return;
-  const confirmed = window.confirm(`Ordner „${folder.name}“ inklusive Inhalt wirklich löschen?`);
-  if (!confirmed) return;
-
-  try {
-    const folderIds = getDescendantFolderIds(folderId);
-    const filesToDelete = state.documents.files.filter((file) => folderIds.includes(file.folder_id));
-    const filePaths = filesToDelete.map((file) => file.file_path);
-
-    if (filePaths.length) {
-      const storageResult = await supabase.storage.from('documents').remove(filePaths);
-      if (storageResult.error) throw storageResult.error;
-    }
-
-    const { error } = await supabase.from('folders').delete().in('id', folderIds).eq('user_id', state.user.id);
-    if (error) throw error;
-
-    if (state.documents.currentFolderId && folderIds.includes(state.documents.currentFolderId)) {
-      updateDocumentsState({ currentFolderId: folder.parent_id ?? null });
-    }
-
-    await reloadDocuments();
-    setMessage('Ordner wurde gelöscht.');
-  } catch (error) {
-    setError(error.message || 'Ordner konnte nicht gelöscht werden.');
-  }
-};
-
-const fetchProfile = async () => {
-  if (!state.user) return;
-
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', state.user.id)
-    .maybeSingle();
-
-  if (error) {
-    setError('Profil konnte nicht geladen werden. Bitte prüfe die Tabelle „profiles“.');
-    return;
-  }
-
-  if (!data) {
-    await ensureProfileExists(state.user.id);
-    const { data: createdProfile, error: createdProfileError } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', state.user.id)
-      .maybeSingle();
-
-    if (createdProfileError) {
-      setError('Profil konnte nicht erstellt werden.');
-      return;
-    }
-
-    console.log('PROFILE:', createdProfile);
-    setState({ profile: createdProfile });
-    return;
-  }
-
-  console.log('PROFILE:', data);
-  setState({ profile: data });
-};
-
-const fetchArbeitsumgebungen = async () => {
-  if (!state.user) return;
-
-  const { data, error } = await supabase
-    .from('arbeitsumgebungen')
-    .select('id, projektname, kommissionsnummer, created_at')
-    .eq('user_id', state.user.id)
-    .order('created_at', { ascending: false });
-
-  if (error) {
-    setError('Arbeitsumgebungen konnten nicht geladen werden. Bitte prüfe Tabellen und Policies.');
-    return;
-  }
-
-  setState({ arbeitsumgebungen: data ?? [] });
-};
-
-const loadAppData = async () => {
-  setLoading(true);
-  try {
-    await fetchProfile();
-    await fetchArbeitsumgebungen();
-  } finally {
-    setLoading(false);
-  }
-};
-
-const ensureProfileExists = async (userId) => {
-  const { error } = await supabase
-    .from('profiles')
-    .upsert({ id: userId }, { onConflict: 'id' });
-
-  if (error) {
-    setError('Profil konnte nicht vorbereitet werden.');
-  }
-};
-
-const handleRegister = async (event) => {
-  event.preventDefault();
-  const formData = new FormData(event.currentTarget);
-  const email = String(formData.get('email') || '').trim();
-  const password = String(formData.get('password') || '');
-
-  if (!isEmailValid(email)) {
-    setError('Bitte gib eine gültige E-Mail-Adresse ein.');
-    return;
-  }
-
-  if (password.length < 8) {
-    setError('Das Passwort muss mindestens 8 Zeichen haben.');
-    return;
-  }
-
-  setLoading(true);
-  setError(null);
-
-  try {
-    const { data, error } = await supabase.auth.signUp({ email, password });
-    if (error) throw error;
-
-    if (data.user?.id) {
-      await ensureProfileExists(data.user.id);
-    }
-
-    setMessage('Registrierung erfolgreich. Prüfe ggf. dein E-Mail-Postfach zur Bestätigung.');
-    setState({ activeAuthTab: 'anmelden' });
-  } catch (error) {
-    setError(error.message || 'Registrierung fehlgeschlagen.');
-  } finally {
-    setLoading(false);
-  }
-};
-
-const handleLogin = async (event) => {
-  event.preventDefault();
-  const formData = new FormData(event.currentTarget);
-  const email = String(formData.get('email') || '').trim();
-  const password = String(formData.get('password') || '');
-
-  if (!isEmailValid(email)) {
-    setError('Bitte gib eine gültige E-Mail-Adresse ein.');
-    return;
-  }
-
-  if (!password) {
-    setError('Bitte gib dein Passwort ein.');
-    return;
-  }
-
-  setLoading(true);
-  setError(null);
-
-  try {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw error;
-    setMessage('Erfolgreich angemeldet.');
-  } catch (error) {
-    setError(error.message || 'Anmeldung fehlgeschlagen.');
-  } finally {
-    setLoading(false);
-  }
-};
-
-const handleOtpRequest = async (event) => {
-  event.preventDefault();
-  const formData = new FormData(event.currentTarget);
-  const email = String(formData.get('email') || '').trim();
-
-  if (!isEmailValid(email)) {
-    setError('Bitte gib eine gültige E-Mail-Adresse ein.');
-    return;
-  }
-
-  setLoading(true);
-  setError(null);
-
-  try {
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        shouldCreateUser: false,
-      },
-    });
-
-    if (error) throw error;
-    setState({ pendingOtpEmail: email, otpStep: 'verify' });
-    setMessage('Code wurde gesendet. Bitte gib ihn im nächsten Schritt ein.');
-  } catch (error) {
-    setError(error.message || 'OTP-Code konnte nicht angefordert werden.');
-  } finally {
-    setLoading(false);
-  }
-};
-
-const handleOtpVerify = async (event) => {
-  event.preventDefault();
-  const formData = new FormData(event.currentTarget);
-  const email = String(formData.get('email') || state.pendingOtpEmail).trim();
-  const token = String(formData.get('token') || '').trim();
-
-  if (!isEmailValid(email)) {
-    setError('Bitte gib eine gültige E-Mail-Adresse ein.');
-    return;
-  }
-
-  if (!token) {
-    setError('Bitte gib den erhaltenen Code ein.');
-    return;
-  }
-
-  setLoading(true);
-  setError(null);
-
-  try {
-    const { error } = await supabase.auth.verifyOtp({
-      email,
-      token,
-      type: 'email',
-    });
-
-    if (error) throw error;
-    setMessage('Code bestätigt. Du bist jetzt angemeldet.');
-    setState({ otpStep: 'request' });
-  } catch (error) {
-    setError(error.message || 'Code konnte nicht verifiziert werden.');
-  } finally {
-    setLoading(false);
-  }
-};
-
-const handleLogout = async () => {
-  setLoading(true);
-  try {
-    await supabase.auth.signOut();
-  } finally {
-    setLoading(false);
-  }
-};
-
-const handleCreateArbeitsumgebung = async (event) => {
-  event.preventDefault();
-
-  const formData = new FormData(event.currentTarget);
-  const projektname = String(formData.get('projektname') || '').trim();
-  const kommissionsnummer = String(formData.get('kommissionsnummer') || '').trim();
-
-  if (!projektname) {
-    setError('Projektname ist ein Pflichtfeld.');
-    return;
-  }
-
-  if (!kommissionsnummer) {
-    setError('Kommissionsnummer ist ein Pflichtfeld.');
-    return;
-  }
-
-  setLoading(true);
-  setError(null);
-
-  try {
-    const payload = {
-      user_id: state.user.id,
-      projektname,
-      kommissionsnummer,
-    };
-
-    const { data, error } = await supabase
-      .from('arbeitsumgebungen')
-      .insert(payload)
-      .select('id, projektname, kommissionsnummer, created_at')
-      .single();
-
-    if (error) throw error;
-
-    setState({
-      route: { name: 'detail', id: data.id },
-      arbeitsumgebungen: [data, ...state.arbeitsumgebungen],
-    });
-    setMessage('Arbeitsumgebung wurde erstellt.');
-  } catch (error) {
-    setError(error.message || 'Arbeitsumgebung konnte nicht erstellt werden.');
-  } finally {
-    setLoading(false);
-  }
-};
-
-const setAuthTab = (tab) => {
-  setState({
-    activeAuthTab: tab,
-    error: null,
-    message: null,
-    otpStep: tab === 'otp' ? state.otpStep : 'request',
-  });
-};
-
-const navigate = (route) => {
-  const isChangingDetailWorkspace =
-    route.name === 'detail' && (state.route.name !== 'detail' || state.route.id !== route.id);
-
-  if (isChangingDetailWorkspace) {
-    resetDocumentsForWorkspace();
-  }
-
-  setState({
-    route,
-    error: null,
-    message: null,
-  });
-};
-
-const bindEvents = () => {
-  app.addEventListener('submit', (event) => {
-    const form = event.target;
-    if (!(form instanceof HTMLFormElement)) return;
-
-    if (form.id === 'form-login') {
-      handleLogin(event);
-      return;
-    }
-    if (form.id === 'form-register') {
-      handleRegister(event);
-      return;
-    }
-    if (form.id === 'form-otp-request') {
-      handleOtpRequest(event);
-      return;
-    }
-    if (form.id === 'form-otp-verify') {
-      handleOtpVerify(event);
-      return;
-    }
-    if (form.id === 'form-create-arbeitsumgebung') {
-      handleCreateArbeitsumgebung(event);
-    }
-  });
-
-  app.addEventListener('input', (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLElement)) return;
-
-    if (target.id === 'documents-search') {
-      updateDocumentsState({ searchTerm: target.value });
-    }
-  });
-
-  app.addEventListener('change', (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLElement)) return;
-    if (target.id === 'documents-upload-input') {
-      handleUploadFile(event);
-    }
-  });
-
-  app.addEventListener('click', async (event) => {
-    const target = event.target;
-    if (!(target instanceof Element)) return;
-    const trigger = target.closest(
-      [
-        '[data-auth-tab]',
-        '#logout-button',
-        '#create-view-button',
-        '[data-back-to-list]',
-        '[data-open-detail]',
-        '[data-detail-tab]',
-        '#documents-create-folder',
-        '[data-open-folder]',
-        '[data-open-file]',
-        '[data-download-file]',
-        '[data-rename-folder]',
-        '[data-delete-folder]',
-        '[data-rename-file]',
-        '[data-delete-file]',
-      ].join(', ')
-    );
-
-    if (!trigger) return;
-
-    if (trigger.matches('[data-auth-tab]')) {
-      setAuthTab(trigger.dataset.authTab);
-      return;
-    }
-
-    if (trigger.matches('#logout-button')) {
-      handleLogout();
-      return;
-    }
-
-    if (trigger.matches('#create-view-button')) {
-      navigate({ name: 'create' });
-      return;
-    }
-
-    if (trigger.matches('[data-back-to-list]')) {
-      navigate({ name: 'list' });
-      return;
-    }
-
-    if (trigger.matches('[data-open-detail]')) {
-      navigate({ name: 'detail', id: trigger.dataset.openDetail });
-      if (state.activeDetailTab === 'dokumentenablage') {
-        await handleDocumentsTabEnter();
-      }
-      return;
-    }
-
-    if (trigger.matches('[data-detail-tab]')) {
-      const nextTab = trigger.dataset.detailTab;
-      const isSameTab = state.activeDetailTab === nextTab;
-      if (!isSameTab) {
-        setState({ activeDetailTab: nextTab });
-      }
-      if (nextTab === 'dokumentenablage') {
-        await handleDocumentsTabEnter();
-      }
-      return;
-    }
-
-    if (trigger.matches('#documents-create-folder')) {
-      handleCreateFolder();
-      return;
-    }
-
-    if (trigger.matches('[data-open-folder]')) {
-      updateDocumentsState({ currentFolderId: trigger.dataset.openFolder === 'root' ? null : trigger.dataset.openFolder });
-      return;
-    }
-
-    if (trigger.matches('[data-open-file]')) {
-      handleOpenFile(trigger.dataset.openFile);
-      return;
-    }
-
-    if (trigger.matches('[data-download-file]')) {
-      handleDownloadFile(trigger.dataset.downloadFile);
-      return;
-    }
-
-    if (trigger.matches('[data-rename-folder]')) {
-      handleRenameFolder(trigger.dataset.renameFolder);
-      return;
-    }
-
-    if (trigger.matches('[data-delete-folder]')) {
-      handleDeleteFolder(trigger.dataset.deleteFolder);
-      return;
-    }
-
-    if (trigger.matches('[data-rename-file]')) {
-      handleRenameFile(trigger.dataset.renameFile);
-      return;
-    }
-
-    if (trigger.matches('[data-delete-file]')) {
-      handleDeleteFile(trigger.dataset.deleteFile);
-    }
-  });
-
-  const handleDocumentsAutoRefresh = async () => {
-    if (documentsAutoRefreshInFlight) return;
-    if (document.visibilityState !== 'visible') return;
-    if (!state.session) return;
-    if (state.route.name !== 'detail' || state.activeDetailTab !== 'dokumentenablage') return;
-
-    documentsAutoRefreshInFlight = true;
-    try {
-      await handleDocumentsTabEnter({ force: true });
-    } finally {
-      documentsAutoRefreshInFlight = false;
-    }
-  };
-
-  window.addEventListener('focus', handleDocumentsAutoRefresh);
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState !== 'visible') return;
-    handleDocumentsAutoRefresh();
-  });
-};
-
-const renderAlerts = () => {
-  const items = [];
-  if (state.error) {
-    items.push(`<div class="alert alert-error">${escapeHtml(state.error)}</div>`);
-  }
-  if (state.message) {
-    items.push(`<div class="alert alert-success">${escapeHtml(state.message)}</div>`);
-  }
-  return items.join('');
-};
-
-const renderAuth = () => {
-  const isLogin = state.activeAuthTab === 'anmelden';
-  const isRegister = state.activeAuthTab === 'registrieren';
-  const isOtp = state.activeAuthTab === 'otp';
-
-  const isOtpStepRequest = state.otpStep === 'request';
-
-  return `
-    <main class="card auth-card">
-      <h1>Arbeitsumgebungen</h1>
-      <p class="subtitle">Bitte melde dich an, registriere dich oder nutze den Code-Login.</p>
-
-      <div class="tabs" role="tablist" aria-label="Authentifizierung">
-        <button class="tab ${isLogin ? 'active' : ''}" data-auth-tab="anmelden">Anmelden</button>
-        <button class="tab ${isRegister ? 'active' : ''}" data-auth-tab="registrieren">Registrieren</button>
-        <button class="tab ${isOtp ? 'active' : ''}" data-auth-tab="otp">Passwort vergessen</button>
-      </div>
-
-      ${renderAlerts()}
-
-      <section class="tab-panel ${isLogin ? 'active' : ''}">
-        <form id="form-login" class="form">
-          <label>E-Mail
-            <input type="email" name="email" required autocomplete="email" />
-          </label>
-          <label>Passwort
-            <input type="password" name="password" required autocomplete="current-password" />
-          </label>
-          <button type="submit" ${state.loading ? 'disabled' : ''}>${state.loading ? 'Lädt…' : 'Anmelden'}</button>
-        </form>
-      </section>
-
-      <section class="tab-panel ${isRegister ? 'active' : ''}">
-        <form id="form-register" class="form">
-          <label>E-Mail
-            <input type="email" name="email" required autocomplete="email" />
-          </label>
-          <label>Passwort
-            <input type="password" name="password" minlength="8" required autocomplete="new-password" />
-          </label>
-          <button type="submit" ${state.loading ? 'disabled' : ''}>${state.loading ? 'Lädt…' : 'Registrieren'}</button>
-        </form>
-      </section>
-
-      <section class="tab-panel ${isOtp ? 'active' : ''}">
-        ${
-          isOtpStepRequest
-            ? `<form id="form-otp-request" class="form form-wide">
-                <h2>Code senden</h2>
-                <label>E-Mail
-                  <input type="email" name="email" value="${escapeHtml(state.pendingOtpEmail)}" required autocomplete="email" />
-                </label>
-                <button type="submit" ${state.loading ? 'disabled' : ''}>Code senden</button>
-              </form>`
-            : `<form id="form-otp-verify" class="form form-wide">
-                <h2>Code eingeben</h2>
-                <p class="subtitle">Code wurde gesendet an: <strong>${escapeHtml(state.pendingOtpEmail)}</strong></p>
-                <input type="hidden" name="email" value="${escapeHtml(state.pendingOtpEmail)}" />
-                <label>Code
-                  <input type="text" name="token" required inputmode="numeric" />
-                </label>
-                <button type="submit" ${state.loading ? 'disabled' : ''}>Einloggen</button>
-              </form>`
-        }
-      </section>
-    </main>
-  `;
-};
-
-const renderList = () => {
-  const rows = state.arbeitsumgebungen
-    .map(
-      (item) => `
-      <button class="workspace-item" data-open-detail="${item.id}">
-        <div>
-          <strong>${escapeHtml(item.projektname)}</strong>
-          <span>${escapeHtml(item.kommissionsnummer)}</span>
-        </div>
-        <small>${escapeHtml(formatDate(item.created_at))}</small>
-      </button>
-    `
-    )
-    .join('');
-
-  return `
-    <section class="card">
-      <div class="toolbar">
-        <div>
-          <h2>Arbeitsumgebungen</h2>
-          <p class="subtitle">Verwaltung deiner Projekte.</p>
-        </div>
-        <div class="toolbar-actions">
-          <button id="create-view-button"><i class="fa-solid fa-plus"></i> Arbeitsumgebung erstellen</button>
-          <button id="logout-button" class="button-secondary"><i class="fa-solid fa-right-from-bracket"></i> Abmelden</button>
-        </div>
-      </div>
-      ${renderAlerts()}
-      <div class="subscription-note ${hasActiveSubscription(state.profile) ? 'ok' : 'warn'}">
-        Abo-Status: ${hasActiveSubscription(state.profile) ? 'Aktiv' : 'Nicht aktiv'}
-      </div>
-
-      ${
-        state.arbeitsumgebungen.length
-          ? `<div class="workspace-list">${rows}</div>`
-          : `<div class="empty-state">
-              <p>Du hast noch keine Arbeitsumgebungen.</p>
-              <button id="create-view-button"><i class="fa-solid fa-plus"></i> Arbeitsumgebung erstellen</button>
-            </div>`
-      }
-    </section>
-  `;
-};
-
-const renderCreate = () => `
-  <section class="card">
-      <div class="toolbar">
-        <h2>Arbeitsumgebung erstellen</h2>
-      <button class="button-secondary" data-back-to-list><i class="fa-solid fa-arrow-left"></i> Zurück</button>
-    </div>
-    ${renderAlerts()}
-    <form id="form-create-arbeitsumgebung" class="form form-wide">
-      <label>Projektname
-        <input type="text" name="projektname" required />
-      </label>
-      <label>Kommissionsnummer
-        <input type="text" name="kommissionsnummer" required />
-      </label>
-      <button type="submit" ${state.loading ? 'disabled' : ''}><i class="fa-solid fa-check"></i> Arbeitsumgebung erstellen</button>
-    </form>
-  </section>
-`;
-
-const renderDetail = () => {
-  const workspace = state.arbeitsumgebungen.find((item) => item.id === state.route.id);
-
-  if (!workspace) {
-    return `
-      <section class="card">
-        <div class="toolbar">
-          <h2>Detailansicht</h2>
-          <button class="button-secondary" data-back-to-list><i class="fa-solid fa-arrow-left"></i> Zurück</button>
-        </div>
-        <p>Arbeitsumgebung wurde nicht gefunden.</p>
-      </section>
-    `;
-  }
-
-  const detailTabs = [
-    { id: 'neuigkeiten', label: 'Neuigkeiten', icon: 'fa-newspaper' },
-    { id: 'dokumentenablage', label: 'Dokumentenablage', icon: 'fa-folder-open' },
-    { id: 'aktuelle-arbeit', label: 'Aktuelle Arbeit', icon: 'fa-hammer' },
-    { id: 'dispo', label: 'Dispo', icon: 'fa-calendar-days' },
-    { id: 'baujournal', label: 'Baujournal', icon: 'fa-book-open' },
-    { id: 'team', label: 'Team', icon: 'fa-users' },
-  ];
-
-  const tabButtons = detailTabs
-    .map(
-      (tab) => `
-        <button type="button" class="tab ${state.activeDetailTab === tab.id ? 'active' : ''}" data-detail-tab="${tab.id}">
-          <i class="fa-solid ${tab.icon}"></i> ${tab.label}
-        </button>
-      `
-    )
-    .join('');
-
-  const renderDocumentsPanel = () => {
-    const breadcrumbs = buildBreadcrumbs()
-      .map(
-        (item) =>
-          `<button type="button" class="breadcrumb-item" data-open-folder="${item.id ?? 'root'}">${escapeHtml(item.name)}</button>`
-      )
-      .join('<span class="breadcrumb-sep">/</span>');
-    const { visibleFolders, visibleFiles } = getFilteredDocumentItems();
-
-    const folderRows = visibleFolders
-      .map(
-        (folder) => `
-          <article class="doc-item">
-            <button type="button" class="doc-open-button" data-open-folder="${folder.id}">
-              <i class="fa-solid fa-folder"></i>
-              <div>
-                <strong>${escapeHtml(folder.name)}</strong>
-                <small>${escapeHtml(formatDate(folder.created_at))}</small>
-              </div>
-            </button>
-            <div class="doc-item-actions">
-              <button type="button" class="button-secondary" data-rename-folder="${folder.id}"><i class="fa-solid fa-pen"></i></button>
-              <button type="button" class="button-secondary" data-delete-folder="${folder.id}"><i class="fa-solid fa-trash"></i></button>
-            </div>
-          </article>
-        `
-      )
-      .join('');
-
-    const fileRows = visibleFiles
-      .map(
-        (file) => `
-          <article class="doc-item">
-            <button type="button" class="doc-open-button" data-open-file="${file.id}">
-              <i class="fa-solid fa-file"></i>
-              <div>
-                <strong>${escapeHtml(file.name)}</strong>
-                <small>${escapeHtml(formatDate(file.created_at))} · ${escapeHtml(formatFileSize(file.size_bytes))}</small>
-              </div>
-            </button>
-            <div class="doc-item-actions">
-              <button type="button" class="button-secondary" data-rename-file="${file.id}"><i class="fa-solid fa-pen"></i></button>
-              <button type="button" class="button-secondary" data-download-file="${file.id}"><i class="fa-solid fa-download"></i></button>
-              <button type="button" class="button-secondary" data-delete-file="${file.id}"><i class="fa-solid fa-trash"></i></button>
-            </div>
-          </article>
-        `
-      )
-      .join('');
-
-    const hasItems = visibleFolders.length > 0 || visibleFiles.length > 0;
-
-    return `
-      <section class="tab-panel ${state.activeDetailTab === 'dokumentenablage' ? 'active' : ''}">
-        <div class="detail-section documents-section">
-          <div class="documents-toolbar">
-            <h3><i class="fa-solid fa-folder-open"></i> Dokumentenablage</h3>
-            <div class="toolbar-actions">
-              <button type="button" id="documents-create-folder"><i class="fa-solid fa-folder-plus"></i> Ordner erstellen</button>
-              <label class="upload-label">
-                <i class="fa-solid fa-upload"></i> Datei hochladen
-                <input id="documents-upload-input" type="file" />
-              </label>
-            </div>
-          </div>
-          <div class="documents-controls">
-            <div class="breadcrumbs">${breadcrumbs}</div>
-            <input id="documents-search" type="search" placeholder="Suche nach Ordnern und Dateien…" value="${escapeHtml(state.documents.searchTerm)}" />
-          </div>
-          ${
-            state.documents.loading
-              ? '<p class="subtitle">Dokumentenablage lädt…</p>'
-              : hasItems
-                ? `<div class="documents-list">${folderRows}${fileRows}</div>`
-                : '<div class="empty-state"><p>Keine Ordner oder Dateien im aktuellen Bereich.</p></div>'
-          }
-        </div>
-      </section>
-    `;
-  };
-
-  const tabPanels = detailTabs
-    .map((tab) => {
-      if (tab.id === 'dokumentenablage') {
-        return renderDocumentsPanel();
-      }
-      return `
-        <section class="tab-panel ${state.activeDetailTab === tab.id ? 'active' : ''}">
-          <div class="detail-section">
-            <h3><i class="fa-solid ${tab.icon}"></i> ${tab.label}</h3>
-            <p>Dieser Bereich für „${tab.label}“ ist bereit.</p>
-          </div>
-        </section>
-      `;
-    })
-    .join('');
-
-  return `
-    <section class="card">
-      <div class="toolbar">
-        <h2>Arbeitsumgebung</h2>
-        <button class="button-secondary" data-back-to-list><i class="fa-solid fa-arrow-left"></i> Zurück</button>
-      </div>
-      <div class="tabs detail-tabs" role="tablist" aria-label="Arbeitsumgebung-Bereiche">
-        ${tabButtons}
-      </div>
-      ${tabPanels}
-    </section>
-  `;
-};
-
-const renderApp = () => {
-  const sections = [];
-  sections.push(`
-    <header class="app-header">
-      <h1>Arbeitsumgebungen</h1>
-    </header>
-  `);
-
-  if (state.route.name === 'create') {
-    sections.push(renderCreate());
-  } else if (state.route.name === 'detail') {
-    sections.push(renderDetail());
-  } else {
-    sections.push(renderList());
-  }
-
-  return `<main class="app-main">${sections.join('')}</main>`;
+const renderSchema6 = () => {
+  const completed = state.schema6.completed;
+  const lampOn = getSchema6LampOn();
+  const targetText = state.schema6.targetLampOn ? 'AN' : 'AUS';
+
+  schema6Els.task.textContent = completed
+    ? 'Super! Du hast die Mehrfachschaltung gemeistert.'
+    : `Aufgabe: Bringe die Lampe zuerst auf ${targetText}. Danach schalte sie auf ${
+        state.schema6.targetLampOn ? 'AUS' : 'AN'
+      }.`;
+
+  schema6Els.switchA.textContent = `Schalter A: ${state.schema6.a ? '1' : '0'}`;
+  schema6Els.switchB.textContent = `Schalter B: ${state.schema6.b ? '1' : '0'}`;
+  schema6Els.switchC.textContent = `Schalter C: ${state.schema6.c ? '1' : '0'}`;
+  schema6Els.switchA.classList.toggle('on', state.schema6.a);
+  schema6Els.switchB.classList.toggle('on', state.schema6.b);
+  schema6Els.switchC.classList.toggle('on', state.schema6.c);
+  updateLamp(schema6Els.lamp, lampOn);
 };
 
 const render = () => {
-  app.innerHTML = state.session ? renderApp() : renderAuth();
+  updateScore();
+  renderSchema0();
+  renderSchema3();
+  renderSchema6();
 };
 
-const init = async () => {
-  bindEvents();
-  const storedViewState = readStoredViewState();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+const completeChallenge = (schemaKey, feedbackElement, successText, points) => {
+  if (state[schemaKey].completed) return;
+  state[schemaKey].completed = true;
+  state.score += points;
+  markSuccess(feedbackElement, `${successText} (+${points} Punkte)`);
+  render();
+};
 
-  if (session) {
-    const restoredRoute =
-      storedViewState?.route?.name === 'detail' || storedViewState?.route?.name === 'create'
-        ? storedViewState.route
-        : { name: 'list' };
-    const restoredTab = typeof storedViewState?.activeDetailTab === 'string'
-      ? storedViewState.activeDetailTab
-      : 'neuigkeiten';
-    const restoredFolder = storedViewState?.currentFolderId ?? null;
+const resetSchema0 = () => {
+  state.schema0.switchOn = false;
+  state.schema0.sawOn = false;
+  state.schema0.sawOffAfterOn = false;
+  state.schema0.completed = false;
+  setHint(schema0Els.feedback, 'Tipp: Ein Schalter steuert direkt den Stromfluss zur Lampe.');
+  render();
+};
 
-    setState({
-      session,
-      user: session.user,
-      route: restoredRoute,
-      activeDetailTab: restoredTab,
-      documents: {
-        ...state.documents,
-        currentFolderId: restoredFolder,
-      },
-    });
-    await loadAppData();
-    if (restoredRoute.name === 'detail' && restoredTab === 'dokumentenablage') {
-      await handleDocumentsTabEnter();
-    }
-    initialSessionHydrated = true;
-  } else {
-    render();
-    initialSessionHydrated = true;
+const resetSchema3 = () => {
+  state.schema3.a = false;
+  state.schema3.b = false;
+  state.schema3.sawOn = false;
+  state.schema3.sawOffAfterOn = false;
+  state.schema3.completed = false;
+  setHint(schema3Els.feedback, 'Tipp: In der Wechselschaltung kann jeder Schalter den Zustand wechseln.');
+  render();
+};
+
+const resetSchema6 = () => {
+  state.schema6.a = false;
+  state.schema6.b = false;
+  state.schema6.c = false;
+  state.schema6.targetLampOn = Math.random() > 0.5;
+  state.schema6.reachedTarget = false;
+  state.schema6.completed = false;
+  setHint(
+    schema6Els.feedback,
+    'Tipp: Beobachte, wie sich die Lampe mit jedem zusätzlichen Schalter verhält.'
+  );
+  render();
+};
+
+schema0Els.switch.addEventListener('click', () => {
+  state.schema0.switchOn = !state.schema0.switchOn;
+
+  if (state.schema0.switchOn) {
+    state.schema0.sawOn = true;
   }
 
-  supabase.auth.onAuthStateChange(async (event, session) => {
-    if (event === 'INITIAL_SESSION') {
-      return;
-    }
+  if (!state.schema0.switchOn && state.schema0.sawOn) {
+    state.schema0.sawOffAfterOn = true;
+  }
 
-    if (event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
-      if (session && state.session) {
-        setState({
-          session,
-          user: session.user,
-        });
-      }
-      return;
-    }
+  if (state.schema0.sawOn && state.schema0.sawOffAfterOn) {
+    completeChallenge('schema0', schema0Els.feedback, 'Aufgabe gelöst!', 10);
+  } else {
+    setHint(schema0Els.feedback, 'Gut! Beobachte, wann die Lampe leuchtet und wann nicht.');
+    render();
+  }
+});
 
-    if (session) {
-      const shouldResetRoute = !state.session && event === 'SIGNED_IN';
-      setState({
-        session,
-        user: session.user,
-        route: shouldResetRoute ? { name: 'list' } : state.route,
-      });
-      await ensureProfileExists(session.user.id);
-      await loadAppData();
-      initialSessionHydrated = true;
-    } else {
-      documentsLoadedWorkspaceId = null;
-      documentsLoadingWorkspaceId = null;
-      documentsLoadPromise = null;
-      setState({
-        session: null,
-        user: null,
-        profile: null,
-        arbeitsumgebungen: [],
-        route: { name: 'list' },
-        pendingOtpEmail: '',
-        otpStep: 'request',
-        activeDetailTab: 'neuigkeiten',
-        documents: {
-          currentFolderId: null,
-          folders: [],
-          files: [],
-          searchTerm: '',
-          loading: false,
-        },
-      });
-      try {
-        window.sessionStorage.removeItem(VIEW_STATE_STORAGE_KEY);
-      } catch {
-        // Silent fail for non-critical UI persistence.
-      }
-      initialSessionHydrated = true;
-    }
-  });
+schema3Els.switchA.addEventListener('click', () => {
+  state.schema3.a = !state.schema3.a;
 
+  const lampOn = getSchema3LampOn();
+  if (lampOn) state.schema3.sawOn = true;
+  if (!lampOn && state.schema3.sawOn) state.schema3.sawOffAfterOn = true;
+
+  if (state.schema3.sawOn && state.schema3.sawOffAfterOn) {
+    completeChallenge('schema3', schema3Els.feedback, 'Stark gelöst!', 20);
+  } else {
+    setHint(schema3Els.feedback, 'Prima! Wechsle auch den zweiten Schalter und beobachte den Effekt.');
+    render();
+  }
+});
+
+schema3Els.switchB.addEventListener('click', () => {
+  state.schema3.b = !state.schema3.b;
+
+  const lampOn = getSchema3LampOn();
+  if (lampOn) state.schema3.sawOn = true;
+  if (!lampOn && state.schema3.sawOn) state.schema3.sawOffAfterOn = true;
+
+  if (state.schema3.sawOn && state.schema3.sawOffAfterOn) {
+    completeChallenge('schema3', schema3Els.feedback, 'Stark gelöst!', 20);
+  } else {
+    setHint(schema3Els.feedback, 'Prima! Wechsle auch den zweiten Schalter und beobachte den Effekt.');
+    render();
+  }
+});
+
+const toggleSchema6Switch = (key) => {
+  state.schema6[key] = !state.schema6[key];
+  const lampOn = getSchema6LampOn();
+
+  if (!state.schema6.reachedTarget && lampOn === state.schema6.targetLampOn) {
+    state.schema6.reachedTarget = true;
+    setHint(schema6Els.feedback, `Sehr gut! Nun die Lampe auf ${state.schema6.targetLampOn ? 'AUS' : 'AN'} schalten.`);
+    render();
+    return;
+  }
+
+  if (state.schema6.reachedTarget && lampOn !== state.schema6.targetLampOn) {
+    completeChallenge('schema6', schema6Els.feedback, 'Mehrfachschaltung verstanden!', 30);
+    return;
+  }
+
+  setHint(schema6Els.feedback, 'Weiterprobieren: Jede Schaltstelle verändert den Gesamtzustand.');
+  render();
 };
 
-init();
+schema6Els.switchA.addEventListener('click', () => toggleSchema6Switch('a'));
+schema6Els.switchB.addEventListener('click', () => toggleSchema6Switch('b'));
+schema6Els.switchC.addEventListener('click', () => toggleSchema6Switch('c'));
+
+schema0Els.reset.addEventListener('click', resetSchema0);
+schema3Els.reset.addEventListener('click', resetSchema3);
+schema6Els.reset.addEventListener('click', resetSchema6);
+
+document.querySelectorAll('[data-open-exercise]').forEach((button) => {
+  button.addEventListener('click', () => {
+    setView(button.dataset.openExercise);
+  });
+});
+
+document.querySelectorAll('[data-back]').forEach((button) => {
+  button.addEventListener('click', () => {
+    setView('dashboard');
+  });
+});
+
+resetSchema0();
+resetSchema3();
+resetSchema6();
+setView('dashboard');
+render();
