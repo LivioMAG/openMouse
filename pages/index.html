@@ -11,8 +11,8 @@
       <p class="hero-kicker">Elektrotechnik für Lehrlinge</p>
       <h1>SchaltungsTrainer</h1>
       <p class="hero-copy">
-        Lerne Schema-0, Schema-3 und Schema-6 spielerisch. Wähle eine Übung, schalte die
-        virtuellen Schalter und löse die Aufgaben.
+        Lerne Schema-0, Schema-3 und Schema-6 spielerisch. Zusätzlich kannst du das Zeichnen von
+        Schaltungsschemata direkt in der App üben.
       </p>
     </header>
 
@@ -46,6 +46,12 @@
             <h3>Übung 3 – Schema 6</h3>
             <p>Drei Schaltstellen. Lerne das Prinzip einer Mehrfachschaltung.</p>
             <button class="start-button" data-open-exercise="schema6">Übung starten</button>
+          </article>
+
+          <article class="exercise-card">
+            <h3>Übung 4 – Schema zeichnen</h3>
+            <p>Übe Schaltungen zu skizzieren: Zeichne Leitungen, Schalter und Lampen frei ein.</p>
+            <button class="start-button" data-open-exercise="draw">Übung starten</button>
           </article>
         </div>
       </section>
@@ -156,6 +162,33 @@
         <div class="panel-actions">
           <button id="schema6Reset" class="ghost" type="button">Neu starten</button>
           <span class="feedback" id="schema6Feedback" aria-live="polite"></span>
+        </div>
+      </section>
+
+      <section id="exercise-draw" class="panel" aria-labelledby="draw-title">
+        <div class="panel-head">
+          <h2 id="draw-title">Schema zeichnen</h2>
+          <button class="ghost" data-back>← Zurück zum Dashboard</button>
+        </div>
+
+        <p class="task">
+          Aufgabe: Zeichne ein einfaches Schaltungsschema mit Energiequelle, Schalter und Lampe.
+          Nutze danach «Zurück zum Dashboard», um eine weitere Übung zu starten.
+        </p>
+
+        <div class="draw-board-wrap">
+          <canvas
+            id="drawCanvas"
+            class="draw-canvas"
+            width="900"
+            height="460"
+            aria-label="Zeichenfläche für Schaltungsschema"
+          ></canvas>
+        </div>
+
+        <div class="panel-actions">
+          <button id="drawClear" class="ghost" type="button">Zeichnung löschen</button>
+          <span class="feedback" id="drawFeedback" aria-live="polite"></span>
         </div>
       </section>
     </main>

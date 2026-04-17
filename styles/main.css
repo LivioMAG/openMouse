@@ -205,6 +205,27 @@ button:hover {
   padding: 1rem;
 }
 
+.draw-board-wrap {
+  background:
+    linear-gradient(rgb(148 163 184 / 13%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(148 163 184 / 13%) 1px, transparent 1px),
+    #0b1220;
+  background-size: 30px 30px, 30px 30px, auto;
+  border: 1px solid #374151;
+  border-radius: 14px;
+  padding: 0.75rem;
+}
+
+.draw-canvas {
+  width: 100%;
+  max-width: 100%;
+  display: block;
+  border-radius: 10px;
+  background: rgb(15 23 42 / 70%);
+  border: 1px solid #4b5563;
+  cursor: crosshair;
+}
+
 .switch {
   min-width: 110px;
   background: #1f2937;
