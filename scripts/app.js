@@ -81,9 +81,11 @@ const schema6Els = {
 };
 
 const setView = (view) => {
-  state.view = view;
+  const targetView = Object.prototype.hasOwnProperty.call(panels, view) ? view : 'dashboard';
+  state.view = targetView;
+
   Object.entries(panels).forEach(([key, panel]) => {
-    panel.classList.toggle('active', key === view);
+    panel.classList.toggle('active', key === targetView);
   });
 };
 
@@ -404,7 +406,8 @@ schema6Els.reset.addEventListener('click', resetSchema6);
 
 document.querySelectorAll('[data-open-exercise]').forEach((button) => {
   button.addEventListener('click', () => {
-    setView(button.dataset.openExercise);
+    const requestedView = button.dataset.openExercise?.trim() ?? '';
+    setView(requestedView);
   });
 });
 
