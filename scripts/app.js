@@ -1,6 +1,16 @@
 const state = {
   score: 0,
   view: 'dashboard',
+  builder: {
+    slots: {
+      1: null,
+      2: null,
+      3: null,
+      4: null,
+      5: null,
+    },
+    completed: false,
+  },
   schema0: {
     switchOn: false,
     sawOn: false,
@@ -26,6 +36,7 @@ const state = {
 
 const panels = {
   dashboard: document.getElementById('dashboard'),
+  builder: document.getElementById('exercise-builder'),
   schema0: document.getElementById('exercise-schema0'),
   schema3: document.getElementById('exercise-schema3'),
   schema6: document.getElementById('exercise-schema6'),
@@ -39,6 +50,15 @@ const schema0Els = {
   lamp: document.getElementById('schema0Lamp'),
   feedback: document.getElementById('schema0Feedback'),
   reset: document.getElementById('schema0Reset'),
+};
+
+const builderEls = {
+  task: document.getElementById('builderTask'),
+  parts: Array.from(document.querySelectorAll('.part')),
+  slots: Array.from(document.querySelectorAll('.slot')),
+  check: document.getElementById('builderCheck'),
+  reset: document.getElementById('builderReset'),
+  feedback: document.getElementById('builderFeedback'),
 };
 
 const schema3Els = {
@@ -89,6 +109,37 @@ const setHint = (feedbackElement, text) => {
 const getSchema3LampOn = () => state.schema3.a !== state.schema3.b;
 const getSchema6LampOn = () => Number(state.schema6.a) + Number(state.schema6.b) + Number(state.schema6.c) >= 2;
 
+const renderBuilder = () => {
+  builderEls.task.textContent = state.builder.completed
+    ? 'Geschafft! Die Schaltung ist korrekt aufgebaut und der Stromkreis ist geschlossen.'
+    : 'Aufgabe: Ziehe alle Bauteile in der richtigen Reihenfolge in den Schaltungsplatz.';
+
+  builderEls.slots.forEach((slot) => {
+    const slotNumber = slot.dataset.slot;
+    const currentPart = state.builder.slots[slotNumber];
+    const expectedPart = slot.dataset.accept;
+    slot.classList.toggle('filled', Boolean(currentPart));
+    slot.textContent = currentPart
+      ? `${slotNumber}. ${builderEls.parts.find((part) => part.dataset.part === currentPart)?.textContent ?? ''}`
+      : `${slotNumber}. ${
+          expectedPart === 'battery'
+            ? 'Energiequelle'
+            : expectedPart.includes('wire')
+              ? 'Leitung'
+              : expectedPart === 'switch'
+                ? 'Schalter'
+                : 'Verbraucher'
+        }`;
+  });
+
+  const usedParts = new Set(Object.values(state.builder.slots).filter(Boolean));
+  builderEls.parts.forEach((part) => {
+    const isUsed = usedParts.has(part.dataset.part);
+    part.classList.toggle('used', isUsed);
+    part.setAttribute('aria-disabled', String(isUsed));
+  });
+};
+
 const renderSchema0 = () => {
   const { switchOn, completed } = state.schema0;
 
@@ -138,6 +189,7 @@ const renderSchema6 = () => {
 
 const render = () => {
   updateScore();
+  renderBuilder();
   renderSchema0();
   renderSchema3();
   renderSchema6();
@@ -160,6 +212,22 @@ const resetSchema0 = () => {
   render();
 };
 
+const resetBuilder = () => {
+  state.builder.slots = {
+    1: null,
+    2: null,
+    3: null,
+    4: null,
+    5: null,
+  };
+  state.builder.completed = false;
+  setHint(
+    builderEls.feedback,
+    'Tipp: Ein geschlossener Kreis braucht Batterie, Leitungen, Schalter und Lampe in korrekter Reihenfolge.'
+  );
+  render();
+};
+
 const resetSchema3 = () => {
   state.schema3.a = false;
   state.schema3.b = false;
@@ -169,6 +237,79 @@ const resetSchema3 = () => {
   setHint(schema3Els.feedback, 'Tipp: In der Wechselschaltung kann jeder Schalter den Zustand wechseln.');
   render();
 };
+
+const checkBuilder = () => {
+  const isCorrect = builderEls.slots.every((slot) => {
+    const slotNumber = slot.dataset.slot;
+    return state.builder.slots[slotNumber] === slot.dataset.accept;
+  });
+
+  if (isCorrect) {
+    completeChallenge('builder', builderEls.feedback, 'Perfekt aufgebaut!', 15);
+    return;
+  }
+
+  setHint(builderEls.feedback, 'Noch nicht korrekt: Prüfe Reihenfolge und Vollständigkeit der Bauteile.');
+  render();
+};
+
+const handlePartDrop = (slot, partKey) => {
+  const slotNumber = slot.dataset.slot;
+  const alreadyUsed = Object.values(state.builder.slots).includes(partKey);
+  if (alreadyUsed) {
+    setHint(builderEls.feedback, 'Dieses Bauteil ist bereits gesetzt.');
+    return;
+  }
+
+  state.builder.slots[slotNumber] = partKey;
+  setHint(builderEls.feedback, 'Bauteil platziert. Fülle alle Felder und prüfe den Stromkreis.');
+  render();
+};
+
+builderEls.parts.forEach((part) => {
+  part.addEventListener('dragstart', (event) => {
+    if (part.classList.contains('used')) {
+      event.preventDefault();
+      return;
+    }
+    part.classList.add('dragging');
+    event.dataTransfer?.setData('text/plain', part.dataset.part ?? '');
+  });
+
+  part.addEventListener('dragend', () => {
+    part.classList.remove('dragging');
+  });
+});
+
+builderEls.slots.forEach((slot) => {
+  slot.addEventListener('dragover', (event) => {
+    event.preventDefault();
+    slot.classList.add('ready');
+  });
+
+  slot.addEventListener('dragleave', () => {
+    slot.classList.remove('ready');
+  });
+
+  slot.addEventListener('drop', (event) => {
+    event.preventDefault();
+    slot.classList.remove('ready');
+    const partKey = event.dataTransfer?.getData('text/plain');
+    if (!partKey) return;
+    handlePartDrop(slot, partKey);
+  });
+
+  slot.addEventListener('click', () => {
+    const slotNumber = slot.dataset.slot;
+    if (!state.builder.slots[slotNumber]) return;
+    state.builder.slots[slotNumber] = null;
+    setHint(builderEls.feedback, 'Bauteil entfernt. Du kannst es erneut platzieren.');
+    render();
+  });
+});
+
+builderEls.check.addEventListener('click', checkBuilder);
+builderEls.reset.addEventListener('click', resetBuilder);
 
 const resetSchema6 = () => {
   state.schema6.a = false;
@@ -276,5 +417,6 @@ document.querySelectorAll('[data-back]').forEach((button) => {
 resetSchema0();
 resetSchema3();
 resetSchema6();
+resetBuilder();
 setView('dashboard');
 render();

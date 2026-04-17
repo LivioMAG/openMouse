@@ -25,6 +25,12 @@
 
         <div class="exercise-grid">
           <article class="exercise-card">
+            <h3>Übung 0 – Schaltung bauen</h3>
+            <p>Baue den Stromkreis per Drag &amp; Drop mit Batterie, Leitungen, Schalter und Lampe.</p>
+            <button class="start-button" data-open-exercise="builder">Übung starten</button>
+          </article>
+
+          <article class="exercise-card">
             <h3>Übung 1 – Schema 0</h3>
             <p>Eine Schaltstelle, eine Lampe. Verstehe den einfachen Stromkreis.</p>
             <button class="start-button" data-open-exercise="schema0">Übung starten</button>
@@ -41,6 +47,52 @@
             <p>Drei Schaltstellen. Lerne das Prinzip einer Mehrfachschaltung.</p>
             <button class="start-button" data-open-exercise="schema6">Übung starten</button>
           </article>
+        </div>
+      </section>
+
+      <section id="exercise-builder" class="panel" aria-labelledby="builder-title">
+        <div class="panel-head">
+          <h2 id="builder-title">Schaltung zusammenbauen</h2>
+          <button class="ghost" data-back>← Zurück zum Dashboard</button>
+        </div>
+
+        <p class="task" id="builderTask"></p>
+
+        <div class="builder-layout">
+          <div class="parts-box" aria-label="Bauteile">
+            <h3>Bauteile</h3>
+            <div class="parts-list" id="builderParts">
+              <button class="part" id="part-battery" data-part="battery" draggable="true" type="button">
+                Batterie
+              </button>
+              <button class="part" id="part-wireA" data-part="wireA" draggable="true" type="button">
+                Leitung 1
+              </button>
+              <button class="part" id="part-switch" data-part="switch" draggable="true" type="button">
+                Schalter
+              </button>
+              <button class="part" id="part-wireB" data-part="wireB" draggable="true" type="button">
+                Leitung 2
+              </button>
+              <button class="part" id="part-lamp" data-part="lamp" draggable="true" type="button">
+                Lampe
+              </button>
+            </div>
+          </div>
+
+          <div class="circuit-drop" aria-label="Schaltungsplatz">
+            <div class="slot" data-slot="1" data-accept="battery">1. Energiequelle</div>
+            <div class="slot" data-slot="2" data-accept="wireA">2. Leitung</div>
+            <div class="slot" data-slot="3" data-accept="switch">3. Schalter</div>
+            <div class="slot" data-slot="4" data-accept="wireB">4. Leitung</div>
+            <div class="slot" data-slot="5" data-accept="lamp">5. Verbraucher</div>
+          </div>
+        </div>
+
+        <div class="panel-actions">
+          <button id="builderCheck" type="button">Stromkreis prüfen</button>
+          <button id="builderReset" class="ghost" type="button">Neu starten</button>
+          <span class="feedback" id="builderFeedback" aria-live="polite"></span>
         </div>
       </section>
 
