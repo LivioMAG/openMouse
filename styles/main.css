@@ -103,6 +103,72 @@ body {
   min-height: 2.8rem;
 }
 
+.builder-layout {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(180px, 240px) 1fr;
+}
+
+.parts-box,
+.circuit-drop {
+  background: #0b1220;
+  border: 1px solid #374151;
+  border-radius: 14px;
+  padding: 1rem;
+}
+
+.parts-box h3 {
+  margin-top: 0;
+  font-size: 1rem;
+}
+
+.parts-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.part {
+  border: 1px dashed #4b5563;
+  background: #1f2937;
+  color: var(--text);
+  text-align: left;
+}
+
+.part.dragging {
+  opacity: 0.6;
+}
+
+.part.used {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.circuit-drop {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.slot {
+  min-height: 54px;
+  border: 1px dashed #4b5563;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  padding: 0.75rem;
+  color: #d1d5db;
+  background: rgb(15 23 42 / 30%);
+}
+
+.slot.ready {
+  border-color: var(--accent);
+}
+
+.slot.filled {
+  border-style: solid;
+  border-color: #22c55e;
+  color: #86efac;
+}
+
 button {
   border: 0;
   border-radius: 10px;
@@ -196,6 +262,10 @@ button:hover {
 }
 
 @media (max-width: 640px) {
+  .builder-layout {
+    grid-template-columns: 1fr;
+  }
+
   .wire {
     display: none;
   }
