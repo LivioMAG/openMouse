@@ -1,59 +1,30 @@
-# openMouse – Frontend für Arbeitsumgebungen (Supabase)
+# SchaltungsTrainer
 
-Dieses Repository enthält ein webbasiertes Frontend mit **HTML, CSS und JavaScript** für:
+Kleine Webapplikation für Lehrlinge in der Elektrotechnik.
 
-- Authentifizierung mit Supabase (Anmelden, Registrieren, OTP-Code per E-Mail)
-- Übersicht von **Arbeitsumgebungen**
-- Erstellen neuer Arbeitsumgebungen (nur mit aktivem Abo)
-- Detailansicht einzelner Arbeitsumgebungen
+## Inhalt
 
-## Projektstruktur
+Die App enthält ein Dashboard mit drei interaktiven Übungen:
 
-- `pages/` – HTML-Seiten
-  - `pages/index.html` – App-Seite
-- `styles/` – CSS-Dateien
-  - `styles/main.css` – zentrales Styling
-- `scripts/` – JavaScript-Dateien
-  - `scripts/app.js` – UI- und App-Logik
-  - `scripts/supabaseClient.js` – Supabase-Client Initialisierung
-  - `scripts/configLoader.js` – Laden von JSON-Konfigurationen
-- `config/` – Konfigurationsdateien als JSON
-  - `config/supabase.json`
-  - `config/webhooks.json`
-  - `config/app.json`
-- `sql/` – SQL-Dateien für Supabase
-  - `sql/001_create_profiles_and_arbeitsumgebungen.sql`
+1. **Schema-0-Schaltung** (ein Schalter, eine Lampe)
+2. **Schema-3-Schaltung** (zwei Schaltstellen)
+3. **Schema-6-Schaltung** (drei Schaltstellen)
+
+Jede Übung zeigt den aktuellen Lampenzustand, gibt eine Aufgabe vor und vergibt Punkte beim Lösen.
+
+## Struktur
+
+- `pages/index.html` – Dashboard und Übungsansichten
+- `styles/main.css` – Layout, Farben und Komponenten
+- `scripts/app.js` – Spiel- und Schaltlogik
 - `index.html` – Weiterleitung auf `pages/index.html`
 
-## Setup
-
-1. Trage deine Supabase-Credentials in `config/supabase.json` ein:
-
-```json
-{
-  "url": "https://YOUR_PROJECT_REF.supabase.co",
-  "anonKey": "YOUR_SUPABASE_ANON_KEY"
-}
-```
-
-2. Optional: Pflege Webhooks in `config/webhooks.json`.
-
-3. App lokal starten (ein statischer Server reicht), z. B.:
+## Starten
 
 ```bash
 python -m http.server 8080
 ```
 
-Dann im Browser öffnen: `http://localhost:8080`
+Dann im Browser öffnen:
 
-## Hinweis zu Konfiguration
-
-Alle projektspezifischen Einstellungen (Supabase, Webhooks, App-Werte) liegen jetzt in `config/*.json` als Key-Value-Struktur.
-
-## Erwartete Supabase-Tabellen
-
-Die initiale SQL liegt in:
-
-- `sql/001_create_profiles_and_arbeitsumgebungen.sql`
-
-Führe diese Datei in Supabase SQL Editor aus.
+- `http://localhost:8080`
