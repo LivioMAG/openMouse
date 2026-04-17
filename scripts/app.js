@@ -32,6 +32,9 @@ const state = {
     reachedTarget: false,
     completed: false,
   },
+  draw: {
+    started: false,
+  },
 };
 
 const panels = {
@@ -40,6 +43,7 @@ const panels = {
   schema0: document.getElementById('exercise-schema0'),
   schema3: document.getElementById('exercise-schema3'),
   schema6: document.getElementById('exercise-schema6'),
+  draw: document.getElementById('exercise-draw'),
 };
 
 const scoreEl = document.getElementById('totalScore');
@@ -78,6 +82,12 @@ const schema6Els = {
   lamp: document.getElementById('schema6Lamp'),
   feedback: document.getElementById('schema6Feedback'),
   reset: document.getElementById('schema6Reset'),
+};
+
+const drawEls = {
+  canvas: document.getElementById('drawCanvas'),
+  clear: document.getElementById('drawClear'),
+  feedback: document.getElementById('drawFeedback'),
 };
 
 const setView = (view) => {
@@ -195,6 +205,67 @@ const render = () => {
   renderSchema0();
   renderSchema3();
   renderSchema6();
+};
+
+const initDrawCanvas = () => {
+  const canvas = drawEls.canvas;
+  if (!canvas) return;
+
+  const context = canvas.getContext('2d');
+  if (!context) return;
+
+  let drawing = false;
+  let previousPoint = null;
+
+  const getCanvasPoint = (event) => {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: (event.clientX - rect.left) * (canvas.width / rect.width),
+      y: (event.clientY - rect.top) * (canvas.height / rect.height),
+    };
+  };
+
+  const beginStroke = (event) => {
+    drawing = true;
+    previousPoint = getCanvasPoint(event);
+    state.draw.started = true;
+    setHint(drawEls.feedback, 'Zeichnung aktiv: Ergänze dein Schema mit klaren Verbindungen.');
+  };
+
+  const drawStroke = (event) => {
+    if (!drawing || !previousPoint) return;
+    const nextPoint = getCanvasPoint(event);
+    context.lineWidth = 3;
+    context.lineCap = 'round';
+    context.strokeStyle = '#38bdf8';
+    context.beginPath();
+    context.moveTo(previousPoint.x, previousPoint.y);
+    context.lineTo(nextPoint.x, nextPoint.y);
+    context.stroke();
+    previousPoint = nextPoint;
+  };
+
+  const stopStroke = () => {
+    drawing = false;
+    previousPoint = null;
+  };
+
+  const clearCanvas = () => {
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    state.draw.started = false;
+    setHint(drawEls.feedback, 'Zeichenfläche geleert. Starte mit einer neuen Schaltungsskizze.');
+  };
+
+  canvas.addEventListener('pointerdown', beginStroke);
+  canvas.addEventListener('pointermove', drawStroke);
+  canvas.addEventListener('pointerup', stopStroke);
+  canvas.addEventListener('pointerleave', stopStroke);
+  drawEls.clear.addEventListener('click', clearCanvas);
+
+  setHint(
+    drawEls.feedback,
+    'Tipp: Skizziere den Stromweg von der Energiequelle über den Schalter bis zur Lampe.'
+  );
 };
 
 const completeChallenge = (schemaKey, feedbackElement, successText, points) => {
@@ -421,5 +492,6 @@ resetSchema0();
 resetSchema3();
 resetSchema6();
 resetBuilder();
+initDrawCanvas();
 setView('dashboard');
 render();
