@@ -240,17 +240,28 @@ create table public.project_disco_entries (
 
 create or replace function public.is_admin_user()
 returns boolean
-language sql
+language plpgsql
 stable
 security definer
-set search_path = public
+set search_path = public, auth
+set row_security = off
 as $$
-  select exists (
+declare
+  v_uid uuid;
+begin
+  v_uid := auth.uid();
+  if v_uid is null then
+    return false;
+  end if;
+
+  return exists (
     select 1
     from public.app_profiles
-    where id = auth.uid()
+    where id = v_uid
       and is_admin = true
+      and is_active = true
   );
+end;
 $$;
 
 create or replace function public.build_holiday_request_history_text(request_row public.holiday_requests)
