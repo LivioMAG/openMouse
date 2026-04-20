@@ -1,5 +1,29 @@
 create extension if not exists pgcrypto;
 
+-- Fresh install reset (safe for new and existing dev databases):
+-- removes previous app objects so this script always produces a clean schema.
+drop function if exists public.build_holiday_request_history_text(public.holiday_requests) cascade;
+drop function if exists public.approve_holiday_request(uuid, text, text) cascade;
+drop function if exists public.reject_holiday_request(uuid, text) cascade;
+drop function if exists public.purge_user_account(uuid) cascade;
+drop function if exists public.is_admin_user() cascade;
+drop function if exists public.set_updated_at() cascade;
+
+drop table if exists public.project_disco_entries cascade;
+drop table if exists public.project_disco_layers cascade;
+drop table if exists public.daily_assignments cascade;
+drop table if exists public.request_history cascade;
+drop table if exists public.holiday_requests cascade;
+drop table if exists public.weekly_reports cascade;
+drop table if exists public.notes cascade;
+drop table if exists public.crm_contacts cascade;
+drop table if exists public.projects cascade;
+drop table if exists public.school_vacations cascade;
+drop table if exists public.platform_holidays cascade;
+drop table if exists public.app_profiles cascade;
+drop table if exists public.project_assignments cascade;
+drop table if exists public.bot_profiles cascade;
+
 -- IMPORTANT:
 -- Run this file as plain SQL in the Supabase SQL Editor.
 -- If you ever see `syntax error at or near "@@"`, the pasted text likely
