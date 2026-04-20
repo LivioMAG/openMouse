@@ -1,9 +1,20 @@
+-- Supabase Bootstrap Schema (Fresh setup)
+-- Stand: 2026-04-20
+-- Zweck: Vollständiges Re-Create der DB-Struktur inkl. RLS, Trigger, RPC und Storage-Policies.
+
+begin;
+
 create extension if not exists pgcrypto;
 
--- Fresh-only bootstrap:
--- Run this file on a new Supabase project to create the full schema from scratch.
+-- ------------------------------------------------------------
+-- Clean reset (Policies, Trigger, Tabellen, Funktionen)
+-- ------------------------------------------------------------
 
--- Drop tables in dependency order.
+drop policy if exists "weekly attachment read own or admin" on storage.objects;
+drop policy if exists "weekly attachment write own or admin" on storage.objects;
+drop policy if exists "crm note attachment read own or admin" on storage.objects;
+drop policy if exists "crm note attachment write own or admin" on storage.objects;
+
 drop table if exists public.project_disco_entries cascade;
 drop table if exists public.project_disco_layers cascade;
 drop table if exists public.daily_assignments cascade;
@@ -17,7 +28,18 @@ drop table if exists public.school_vacations cascade;
 drop table if exists public.platform_holidays cascade;
 drop table if exists public.app_profiles cascade;
 
-create or replace function public.set_updated_at()
+drop function if exists public.purge_user_account(uuid) cascade;
+drop function if exists public.reject_holiday_request(uuid, text) cascade;
+drop function if exists public.approve_holiday_request(uuid, text, text) cascade;
+drop function if exists public.build_holiday_request_history_text(public.holiday_requests) cascade;
+drop function if exists public.is_admin_user() cascade;
+drop function if exists public.set_updated_at() cascade;
+
+-- ------------------------------------------------------------
+-- Utility Funktionen
+-- ------------------------------------------------------------
+
+create function public.set_updated_at()
 returns trigger
 language plpgsql
 as $$
@@ -26,6 +48,26 @@ begin
   return new;
 end;
 $$;
+
+create function public.is_admin_user()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.app_profiles
+    where id = auth.uid()
+      and is_admin = true
+      and is_active = true
+  );
+$$;
+
+-- ------------------------------------------------------------
+-- Kerntabellen
+-- ------------------------------------------------------------
 
 create table public.app_profiles (
   id uuid primary key references auth.users(id) on delete cascade,
@@ -45,7 +87,9 @@ create table public.app_profiles (
   school_day_2 smallint,
   block_schedule jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default timezone('utc', now()),
-  updated_at timestamptz not null default timezone('utc', now())
+  updated_at timestamptz not null default timezone('utc', now()),
+  constraint app_profiles_school_day_1_check check (school_day_1 is null or school_day_1 between 1 and 7),
+  constraint app_profiles_school_day_2_check check (school_day_2 is null or school_day_2 between 1 and 7)
 );
 
 create table public.projects (
@@ -84,7 +128,10 @@ create table public.weekly_reports (
   controll text,
   attachments jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default timezone('utc', now()),
-  updated_at timestamptz not null default timezone('utc', now())
+  updated_at timestamptz not null default timezone('utc', now()),
+  constraint weekly_reports_break_minutes_check check (lunch_break_minutes >= 0 and additional_break_minutes >= 0),
+  constraint weekly_reports_minutes_check check (total_work_minutes >= 0 and adjusted_work_minutes >= 0),
+  constraint weekly_reports_amount_check check (expenses_amount >= 0 and other_costs_amount >= 0)
 );
 
 create table public.holiday_requests (
@@ -191,22 +238,11 @@ create table public.project_disco_entries (
   created_at timestamptz not null default timezone('utc', now())
 );
 
-create or replace function public.is_admin_user()
-returns boolean
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select exists (
-    select 1
-    from public.app_profiles
-    where id = auth.uid()
-      and is_admin = true
-  );
-$$;
+-- ------------------------------------------------------------
+-- Business Funktionen / RPC
+-- ------------------------------------------------------------
 
-create or replace function public.build_holiday_request_history_text(request_row public.holiday_requests)
+create function public.build_holiday_request_history_text(request_row public.holiday_requests)
 returns text
 language sql
 stable
@@ -225,7 +261,7 @@ as $$
   );
 $$;
 
-create or replace function public.approve_holiday_request(
+create function public.approve_holiday_request(
   p_request_id uuid,
   p_field_name text,
   p_approval_name text
@@ -265,7 +301,7 @@ begin
   end if;
 
   if nullif(trim(coalesce(updated_request.controll_pl, '')), '') is not null
-    and nullif(trim(coalesce(updated_request.controll_gl, '')), '') is not null then
+     and nullif(trim(coalesce(updated_request.controll_gl, '')), '') is not null then
     insert into public.weekly_reports (
       profile_id,
       work_date,
@@ -349,7 +385,7 @@ begin
 end;
 $$;
 
-create or replace function public.reject_holiday_request(
+create function public.reject_holiday_request(
   p_request_id uuid,
   p_context text default 'Abgelehnt'
 )
@@ -380,7 +416,7 @@ begin
 end;
 $$;
 
-create or replace function public.purge_user_account(
+create function public.purge_user_account(
   p_profile_id uuid
 )
 returns void
@@ -403,10 +439,18 @@ begin
   where bucket_id = 'weekly-attachments'
     and name like p_profile_id::text || '/%';
 
+  delete from storage.objects
+  where bucket_id = 'crm-note-attachments'
+    and name like p_profile_id::text || '/%';
+
   delete from auth.users
   where id = p_profile_id;
 end;
 $$;
+
+-- ------------------------------------------------------------
+-- Indizes
+-- ------------------------------------------------------------
 
 create index weekly_reports_profile_work_date_idx on public.weekly_reports (profile_id, work_date);
 create index weekly_reports_year_kw_idx on public.weekly_reports (year, kw);
@@ -417,6 +461,10 @@ create index crm_contacts_last_name_idx on public.crm_contacts (last_name, first
 create index notes_target_uid_created_at_idx on public.notes (target_uid, created_at desc);
 create index project_disco_layers_project_week_idx on public.project_disco_layers (project_id, week_start_date, sort_order);
 create index project_disco_entries_project_note_idx on public.project_disco_entries (project_id, note_id);
+
+-- ------------------------------------------------------------
+-- Trigger
+-- ------------------------------------------------------------
 
 create trigger set_updated_at_app_profiles
 before update on public.app_profiles
@@ -446,6 +494,10 @@ create trigger set_updated_at_school_vacations
 before update on public.school_vacations
 for each row execute function public.set_updated_at();
 
+-- ------------------------------------------------------------
+-- RLS Aktivierung
+-- ------------------------------------------------------------
+
 alter table public.app_profiles enable row level security;
 alter table public.projects enable row level security;
 alter table public.weekly_reports enable row level security;
@@ -456,6 +508,10 @@ alter table public.notes enable row level security;
 alter table public.school_vacations enable row level security;
 alter table public.project_disco_layers enable row level security;
 alter table public.project_disco_entries enable row level security;
+
+-- ------------------------------------------------------------
+-- RLS Policies
+-- ------------------------------------------------------------
 
 drop policy if exists "app_profiles own or admin" on public.app_profiles;
 create policy "app_profiles own or admin"
@@ -551,6 +607,10 @@ to authenticated
 using (public.is_admin_user())
 with check (public.is_admin_user());
 
+-- ------------------------------------------------------------
+-- Storage Buckets + Policies
+-- ------------------------------------------------------------
+
 insert into storage.buckets (id, name, public)
 values ('weekly-attachments', 'weekly-attachments', true)
 on conflict (id) do nothing;
@@ -559,7 +619,6 @@ insert into storage.buckets (id, name, public)
 values ('crm-note-attachments', 'crm-note-attachments', true)
 on conflict (id) do nothing;
 
-drop policy if exists "weekly attachment read own or admin" on storage.objects;
 create policy "weekly attachment read own or admin"
 on storage.objects
 for select
@@ -571,7 +630,6 @@ using (
   )
 );
 
-drop policy if exists "weekly attachment write own or admin" on storage.objects;
 create policy "weekly attachment write own or admin"
 on storage.objects
 for all
@@ -590,7 +648,6 @@ with check (
   )
 );
 
-drop policy if exists "crm note attachment read own or admin" on storage.objects;
 create policy "crm note attachment read own or admin"
 on storage.objects
 for select
@@ -602,7 +659,6 @@ using (
   )
 );
 
-drop policy if exists "crm note attachment write own or admin" on storage.objects;
 create policy "crm note attachment write own or admin"
 on storage.objects
 for all
@@ -620,3 +676,5 @@ with check (
     or auth.uid()::text = split_part(name, '/', 1)
   )
 );
+
+commit;
