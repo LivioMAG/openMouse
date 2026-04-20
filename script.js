@@ -87,7 +87,10 @@ const ABSENCE_TYPE_CODES = new Set([1, 2, 3, 4, 5, 6, 7, 8]);
 const MAX_VISIBLE_FILTER_OPTIONS = 5;
 const BLOCK_SCHEDULE_SCHEMA_HINT =
   "Die Datenbankspalte 'app_profiles.block_schedule' fehlt. Bitte das aktuelle Supabase-Schema (ALTER TABLE app_profiles ADD COLUMN block_schedule ...) ausführen und danach die Seite neu laden.";
-const ADMIN_SQL_SNIPPET = `-- Vollzugriff nur für Profile mit is_admin = true
+const ADMIN_SQL_SNIPPET = `-- Migration für bestehende Instanzen (nicht für komplett neue Datenbank).
+-- Für eine neue Datenbank bitte die Datei supabase-schema.sql vollständig ausführen.
+
+-- Vollzugriff nur für Profile mit is_admin = true
 
 alter table public.holiday_requests
 add column if not exists controll_pl text;
@@ -351,14 +354,9 @@ as $$
 declare
   deleted_request public.holiday_requests%rowtype;
 begin
-  with removed_request as (
-    delete from public.holiday_requests
-    where id = p_request_id
-    returning *
-  )
-  select *
-  into deleted_request
-  from removed_request;
+  delete from public.holiday_requests
+  where id = p_request_id
+  returning * into deleted_request;
 
   if not found then
     raise exception 'Absenzgesuch % wurde nicht gefunden.', p_request_id;
