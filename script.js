@@ -167,9 +167,19 @@ create table if not exists public.school_vacations (
   constraint school_vacations_range_check check (end_date >= start_date)
 );
 
+create table if not exists public.request_history (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default timezone('utc', now()),
+  profile_id uuid not null references public.app_profiles(id) on delete cascade,
+  request text not null,
+  context text not null
+);
+
 alter table public.app_profiles enable row level security;
+alter table public.projects enable row level security;
 alter table public.weekly_reports enable row level security;
 alter table public.holiday_requests enable row level security;
+alter table public.request_history enable row level security;
 
 create or replace function public.is_admin_user()
 returns boolean
@@ -430,6 +440,20 @@ on public.holiday_requests
 for all
 using (public.is_admin_user() or auth.uid() = profile_id)
 with check (public.is_admin_user() or auth.uid() = profile_id);
+
+drop policy if exists "request_history own or admin" on public.request_history;
+create policy "request_history own or admin"
+on public.request_history
+for all
+using (public.is_admin_user() or auth.uid() = profile_id)
+with check (public.is_admin_user() or auth.uid() = profile_id);
+
+drop policy if exists "projects admin access" on public.projects;
+create policy "projects admin access"
+on public.projects
+for all
+using (public.is_admin_user())
+with check (public.is_admin_user());
 
 create policy "weekly attachment read own or admin"
 on storage.objects
