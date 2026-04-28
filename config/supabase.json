@@ -1,0 +1,8 @@
+{
+  "projectName": "openMouse Wishlist",
+  "envKeys": {
+    "url": "VITE_SUPABASE_URL",
+    "anonKey": "VITE_SUPABASE_ANON_KEY"
+  },
+  "notes": "Set values in a runtime config or replace in src/logic/services/supabaseClient.js for plain static hosting. Never commit service_role keys."
+}

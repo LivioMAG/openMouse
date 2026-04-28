@@ -1,0 +1,10 @@
+{
+  "currency": "CHF",
+  "appName": "openMouse Wishlist",
+  "publicNameStorageKey": "wishlist_guest_name",
+  "featureFlags": {
+    "wishlistArchiving": true,
+    "itemImageUrl": true,
+    "itemSorting": true
+  }
+}
