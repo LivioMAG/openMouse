@@ -1,10 +1,10 @@
-import { supabase } from './supabaseClient.js';
+import { getSupabaseClient } from './supabaseClient.js';
 import { toSlug } from '../utils/slug.js';
 
 export async function createWishlist({ title, description }) {
   const base = toSlug(title);
   const slug = `${base}-${Math.random().toString(36).slice(2, 7)}`;
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseClient()
     .from('wishlists')
     .insert({ title, description, slug, is_public: true })
     .select()
@@ -14,15 +14,15 @@ export async function createWishlist({ title, description }) {
 }
 
 export async function listOwnWishlists() {
-  const { data, error } = await supabase.from('wishlists').select('*').order('created_at', { ascending: false });
+  const { data, error } = await getSupabaseClient().from('wishlists').select('*').order('created_at', { ascending: false });
   if (error) throw error;
   return data;
 }
 
 export async function getOwnerWishlist(id) {
-  const { data: wishlist, error } = await supabase.from('wishlists').select('*').eq('id', id).single();
+  const { data: wishlist, error } = await getSupabaseClient().from('wishlists').select('*').eq('id', id).single();
   if (error) throw error;
-  const { data: items, error: itemError } = await supabase
+  const { data: items, error: itemError } = await getSupabaseClient()
     .from('wishlist_items')
     .select('*, item_contributions(*)')
     .eq('wishlist_id', id)
@@ -32,14 +32,14 @@ export async function getOwnerWishlist(id) {
 }
 
 export async function getPublicWishlist(slug) {
-  const { data: wishlist, error } = await supabase
+  const { data: wishlist, error } = await getSupabaseClient()
     .from('wishlists')
     .select('*')
     .eq('slug', slug)
     .eq('is_public', true)
     .single();
   if (error) throw error;
-  const { data: items, error: itemError } = await supabase
+  const { data: items, error: itemError } = await getSupabaseClient()
     .from('wishlist_items')
     .select('*, item_contributions(*)')
     .eq('wishlist_id', wishlist.id)
@@ -61,17 +61,17 @@ export async function saveItem(payload) {
   };
 
   if (payload.id) {
-    const { error } = await supabase.from('wishlist_items').update(dataToSave).eq('id', payload.id);
+    const { error } = await getSupabaseClient().from('wishlist_items').update(dataToSave).eq('id', payload.id);
     if (error) throw error;
     return;
   }
 
-  const { error } = await supabase.from('wishlist_items').insert(dataToSave);
+  const { error } = await getSupabaseClient().from('wishlist_items').insert(dataToSave);
   if (error) throw error;
 }
 
 export async function deleteItem(id) {
-  const { error } = await supabase.from('wishlist_items').delete().eq('id', id);
+  const { error } = await getSupabaseClient().from('wishlist_items').delete().eq('id', id);
   if (error) throw error;
 }
 
@@ -83,6 +83,6 @@ export async function addContribution({ itemId, visitorName, contributionType, a
     amount_chf: contributionType === 'amount' ? Number(amountChf) : null,
     comment: comment || null,
   };
-  const { error } = await supabase.from('item_contributions').insert(insertPayload);
+  const { error } = await getSupabaseClient().from('item_contributions').insert(insertPayload);
   if (error) throw error;
 }
