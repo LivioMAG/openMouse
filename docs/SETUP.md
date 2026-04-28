@@ -1,21 +1,22 @@
 # Wishlist App Setup
 
-## 1) Supabase Environment
-Nutze den anon public key (nicht service_role).
+## 1) Supabase-Konfiguration (automatisch aus JSON)
+Die App lädt URL und anon key automatisch aus:
+- `config/supabase.json`
 
-Option A (empfohlen für statisches Hosting):
-- Setze im `index.html` vor `main.js`:
-```html
-<script>
-  window.__SUPABASE_URL__ = 'https://<project>.supabase.co';
-  window.__SUPABASE_ANON_KEY__ = '<anon-key>';
-</script>
-```
+Es ist kein Eingabeformular im Frontend mehr nötig.
 
-Option B:
-- Starte die App einmal und hinterlege URL/Key im Konfigurationsformular.
+Wichtig:
+- Nur `anon`/`publishable` Key verwenden (nie `service_role`).
+- Bei statischem Hosting muss `config/supabase.json` mit ausgeliefert werden.
 
-## 2) SQL Migration ausführen
+## 2) Direktes Login nach Registrierung
+Die App registriert neue Nutzer:innen mit E-Mail + Passwort und versucht danach direkt einzuloggen.
+
+Damit **keine E-Mail-Bestätigung** nötig ist, in Supabase Dashboard deaktivieren:
+- Authentication → Providers → Email → „Confirm email“ = OFF
+
+## 3) SQL Migration ausführen
 Führe die Datei aus:
 - `supabase/migrations/001_init_wishlist.sql`
 
@@ -24,7 +25,7 @@ Beispiel mit Supabase CLI:
 supabase db push
 ```
 
-## 3) Lokal starten
+## 4) Lokal starten
 Ein einfacher statischer Server genügt:
 ```bash
 python3 -m http.server 4173

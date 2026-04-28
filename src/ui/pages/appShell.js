@@ -1,6 +1,6 @@
 import { state } from '../../logic/state/appState.js';
-import { isSupabaseConfigured, saveSupabaseConfig, supabase } from '../../logic/services/supabaseClient.js';
-import { getSession, signIn, signOut, signUp } from '../../logic/services/authService.js';
+import { getSupabaseClient, getSupabaseConfigSource, initSupabaseClient } from '../../logic/services/supabaseClient.js';
+import { getSession, signIn, signOut, signUpAndSignIn } from '../../logic/services/authService.js';
 import {
   addContribution,
   createWishlist,
@@ -17,14 +17,19 @@ const app = () => document.getElementById('app');
 
 export async function initApp() {
   window.addEventListener('hashchange', render);
-  if (!isSupabaseConfigured) return renderConfigPage();
-  const { data } = await supabase.auth.onAuthStateChange((_event, session) => {
-    state.session = session;
+
+  try {
+    await initSupabaseClient();
+    const { data } = await getSupabaseClient().auth.onAuthStateChange((_event, session) => {
+      state.session = session;
+      render();
+    });
+    state.session = (await getSession()) || null;
+    state.authSubscription = data.subscription;
     render();
-  });
-  state.session = (await getSession()) || null;
-  state.authSubscription = data.subscription;
-  render();
+  } catch (err) {
+    renderConfigError(err);
+  }
 }
 
 function route() {
@@ -40,28 +45,22 @@ async function render() {
   return renderDashboard();
 }
 
-function renderConfigPage() {
+function renderConfigError(err) {
+  const source = getSupabaseConfigSource() || 'config/supabase.json';
   app().innerHTML = renderLayout(
     card(`
-      <h2>Supabase konfigurieren</h2>
-      <p>Bitte URL und anon key eintragen. Diese werden lokal gespeichert.</p>
-      <form id="cfg-form" class="stack">
-        <input name="url" placeholder="https://xyz.supabase.co" required />
-        <input name="anonKey" placeholder="anon public key" required />
-        <button>Speichern</button>
-      </form>
+      <h2>Konfiguration fehlt oder ist ungültig</h2>
+      <p class="msg">${escapeHtml(err.message || 'Unbekannter Fehler.')}</p>
+      <p>Bitte prüfe <code>${escapeHtml(source)}</code> und lade die Seite neu.</p>
     `),
+    { title: 'openMouse Wishlist' },
   );
-  document.getElementById('cfg-form').onsubmit = (e) => {
-    e.preventDefault();
-    saveSupabaseConfig(e.target.url.value, e.target.anonKey.value);
-  };
 }
 
 function renderAuth(message = '') {
   app().innerHTML = renderLayout(
     card(`
-      <h2>Login / Register</h2>
+      <h2>Login / Registrierung</h2>
       ${message ? `<p class="msg">${escapeHtml(message)}</p>` : ''}
       <form id="auth-form" class="stack">
         <input name="email" type="email" placeholder="E-Mail" required />
@@ -80,8 +79,9 @@ function renderAuth(message = '') {
     const action = e.submitter?.value || 'login';
     try {
       if (action === 'register') {
-        await signUp(form.email.value, form.password.value);
-        return renderAuth('Registrierung erfolgreich. Bitte E-Mail bestätigen und einloggen.');
+        await signUpAndSignIn(form.email.value, form.password.value);
+        location.hash = '#/';
+        return;
       }
       await signIn(form.email.value, form.password.value);
       location.hash = '#/';
