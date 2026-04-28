@@ -80,10 +80,13 @@ function renderAuth(message = '') {
     try {
       if (action === 'register') {
         await signUpAndSignIn(form.email.value, form.password.value);
+        state.session = await getSession();
+        await render();
         location.hash = '#/';
         return;
       }
-      await signIn(form.email.value, form.password.value);
+      state.session = await signIn(form.email.value, form.password.value);
+      await render();
       location.hash = '#/';
     } catch (err) {
       renderAuth(err.message);
