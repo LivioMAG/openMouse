@@ -7,8 +7,9 @@ export const getSession = async () => {
 };
 
 export const signIn = async (email, password) => {
-  const { error } = await getSupabaseClient().auth.signInWithPassword({ email, password });
+  const { data, error } = await getSupabaseClient().auth.signInWithPassword({ email, password });
   if (error) throw error;
+  return data?.session || null;
 };
 
 export const signUpAndSignIn = async (email, password) => {
